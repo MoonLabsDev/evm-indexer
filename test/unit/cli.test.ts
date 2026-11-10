@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
+import { PassThrough } from 'stream';
 import type { Db } from 'mongodb';
 import { startMongo } from '../helpers/mongo';
 import {
-  assertNotRunning, cmdProcess, cmdReset, cmdSetRevision, connectFromEnv, resolveChainId, resolvePort,
+  askYesNo, assertNotRunning, cmdProcess, cmdReset, cmdSetRevision, connectFromEnv, resolveChainId, resolvePort,
 } from '../../src/cli/commands';
 import { ConfigError } from '../../src/config/chains';
 import { SystemStore } from '../../src/store/system';
@@ -179,5 +180,35 @@ describe('cli entry', () => {
     const program = buildProgram();
     expect(program.commands.map((c) => c.name()).sort()).toEqual(['codegen', 'index', 'process', 'reset', 'set-revision']);
     expect(vi.mocked(console.log)).not.toHaveBeenCalled();
+  });
+});
+
+describe('askYesNo', () => {
+  const ask = async (typed: string | null): Promise<{ answer: boolean; prompt: string }> => {
+    const input = new PassThrough();
+    const output = new PassThrough();
+    let prompt = '';
+    output.on('data', (c) => { prompt += String(c); });
+    const p = askYesNo('Type "yes" to delete: ', input, output);
+    if (typed !== null) input.write(typed);
+    input.end();
+    return { answer: await p, prompt };
+  };
+
+  it('confirms a typed yes', async () => {
+    const r = await ask('yes\n');
+    expect(r.answer).toBe(true);
+    expect(r.prompt).toContain('Type "yes" to delete');
+  });
+
+  it('declines no and any other answer, exact match only', async () => {
+    expect((await ask('no\n')).answer).toBe(false);
+    expect((await ask('YES\n')).answer).toBe(false);
+    expect((await ask('y\n')).answer).toBe(false);
+    expect((await ask('\n')).answer).toBe(false);
+  });
+
+  it('declines on immediate end of input', async () => {
+    expect((await ask(null)).answer).toBe(false);
   });
 });

@@ -83,7 +83,7 @@ from which the entry reacts to logs. `address` is one address or a list.
 {
   "1329": {
     "Factory": { "address": "0x0000000000000000000000000000000000000001", "block": 1200000 },
-    "Token":   { "address": ["0x0000000000000000000000000000000000000002", "0x0000000000000000000000000000000000000003"], "block": 1250000 }
+    "Erc20":   { "address": ["0x0000000000000000000000000000000000000002", "0x0000000000000000000000000000000000000003"], "block": 1250000 }
   }
 }
 ```
@@ -118,17 +118,17 @@ Root keys are table names, each maps field names to a type string.
 
 Modifiers: `[]` for arrays, `?` for optional (`string[]?` is allowed, also on `ref`). A table
 cannot have a field named `id` (every entity has a string `id`, stored as `_id`) and a `ref`
-must point to an existing table. Table names must not equal contract names.
+must point to an existing table. Table names must not equal contract (ABI file) names: both are exported from `generated/index.ts`.
 
 ### indexer.config.ts
 
 ```ts
 import { defineIndexer, defineTemplate } from 'evm-indexer';
-import { Factory, Pool } from './generated';
+import { Factory, PoolPair } from './generated';
 import { handlePoolCreated, handleOwnerChanged, handleSwap } from './src/handlers';
 
 export const PoolTemplate = defineTemplate({
-  contract: Pool,
+  contract: PoolPair,
   events: { Swap: handleSwap, Sync: null },
 });
 
@@ -162,9 +162,9 @@ Callbacks run one event at a time. The context functions work inside a callback 
 
 ```ts
 import { tx, block, chain } from 'evm-indexer';
-import { Pool, Token, type PoolSwapEvent } from '../generated';
+import { Erc20, Pool, type PoolPairSwapEvent } from '../generated';
 
-export async function handleSwap(e: PoolSwapEvent) {
+export async function handleSwap(e: PoolPairSwapEvent) {
   tx().hash; tx().from; tx().to; tx().value; tx().gasPrice; tx().input; // also nonce, transactionIndex, logIndex
   block().number; block().hash; block().timestamp;                      // a Timestamp
   chain().id; chain().name;
@@ -178,7 +178,7 @@ export async function handleSwap(e: PoolSwapEvent) {
 ```
 
 - **Events**: `e.args`, `e.address`, `e.blockNumber`, `e.txIndex`, `e.logIndex`, `e.txHash`. Solidity `uint*`/`int*` are `bigint`, addresses lowercase strings, tuples typed objects.
-- **Contract reads**: every `view`/`pure` function is a method, executed with `eth_call` at the event's block: `await new Token(addr).balanceOf(user)`. A single return value comes back directly, several as an object keyed by output name (`_0`, `_1` when unnamed).
+- **Contract reads**: every `view`/`pure` function is a method, executed with `eth_call` at the event's block: `await new Erc20(addr).balanceOf(user)`. A single return value comes back directly, several as an object keyed by output name (`_0`, `_1` when unnamed).
 - **Entities**: `Entity.load(id)` returns `null` when missing, `new Entity(id)` creates one, `save()` upserts the whole document, `remove()` deletes it. Required fields that were never set make `save()` throw. Collections are `ent_<chainId>_<Table>`.
 - **References** (`token: "ref:Token"`):
 
@@ -188,7 +188,7 @@ export async function handleSwap(e: PoolSwapEvent) {
   pool.setToken(token);                  // sets id and cache
   ```
 
-  `ref:Token[]` gives `tokenIds`, `getTokens()`, `setTokens()`.
+  An array reference named `tokens: "ref:Token[]"` gives `tokenIds`, `getTokens()`, `setTokens()` (a trailing `s` of the field name is dropped for the ids property).
 - **`Timestamp`**: immutable, `.unix` (seconds), `.ms`, `.date`, `.iso`. Numbers are always unix seconds.
 - **`Decimal`**: decimal.js, exported from `evm-indexer`. MongoDB `Decimal128` holds 34 significant digits; `save()` throws on more instead of rounding.
 - **Index callbacks** may use `tx()`, `block()`, `chain()` and contract reads, but not entities. Their only side effect is `Template.create(address)`. **Process callbacks** may use everything except `Template.create`.

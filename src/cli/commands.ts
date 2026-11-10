@@ -178,14 +178,21 @@ export async function cmdSetRevision(db: Db, chainId: number, revision?: number)
   return next;
 }
 
-function askYesNo(question: string): Promise<boolean> {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
+/** Asks the question; only the exact answer "yes" confirms. End of input without an answer is a no. */
+export function askYesNo(
+  question: string,
+  input: NodeJS.ReadableStream = process.stdin,
+  output: NodeJS.WritableStream = process.stdout,
+): Promise<boolean> {
+  const rl = createInterface({ input, output });
   return new Promise((resolve) => {
+    let answered = false;
+    rl.once('close', () => { if (!answered) resolve(false); });
     rl.question(question, (answer) => {
-      rl.close();
+      answered = true;
       resolve(answer.trim() === 'yes');
+      rl.close();
     });
-    rl.once('close', () => resolve(false));
   });
 }
 
