@@ -44,6 +44,8 @@ export class Indexer {
   private readonly scanners: { backfill: Scanner; head: Scanner };
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly ifaces = new Map<string, Interface>();
+  /** "address/topic0" pairs already reported as undecodable. */
+  private readonly undecodable = new Set<string>();
 
   /** Addresses that index callbacks of the current log created (sink result 'added'). */
   private created: string[] = [];
@@ -125,7 +127,14 @@ export class Indexer {
         throw new Error(`chain ${chainId}: transaction ${raw.transactionHash} of a log is missing in block ${raw.blockNumber}`);
       }
       const address = raw.address.toLowerCase();
-      const args = decodeLog(this.iface(m.source), m.def, raw);
+      let args: Record<string, unknown>;
+      try {
+        args = decodeLog(this.iface(m.source), m.def, raw);
+      } catch (err) {
+        // e.g. an ERC-721 Transfer at an address configured with the ERC-20 layout (same topic0)
+        this.reportUndecodable(raw, `${m.source.name}.${m.eventName}`, err);
+        continue;
+      }
       const event: IndexedEvent = {
         args, address, blockNumber: raw.blockNumber, txIndex: raw.transactionIndex,
         logIndex: raw.logIndex, txHash: raw.transactionHash,
@@ -264,6 +273,20 @@ export class Indexer {
     this.templateWrites.push(write);
     // A failure surfaces from tick(); the callback's own promise never rejects for it.
     return write.catch(() => undefined);
+  }
+
+  /** A log whose layout does not fit the ABI is skipped: red once per address and topic0, debug after that. */
+  private reportUndecodable(raw: RawLog, what: string, err: unknown): void {
+    const topic0 = raw.topics[0]?.toLowerCase() ?? '';
+    const pair = `${raw.address.toLowerCase()}/${topic0}`;
+    const msg = `chain ${this.chain.chainId}: cannot decode ${what} log at ${raw.address.toLowerCase()} ` +
+      `${logKey(raw)} (topic0 ${topic0}), skipped: ${err instanceof Error ? err.message : String(err)}`;
+    if (this.undecodable.has(pair)) {
+      log.debug(msg);
+      return;
+    }
+    this.undecodable.add(pair);
+    log.error(`${msg}; further logs of this address and topic0 that fail to decode are skipped silently`);
   }
 
   /** While far behind head, prints progress with an ETA every 10 s. */

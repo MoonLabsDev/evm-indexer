@@ -25,6 +25,9 @@ const POOL_ABI = [
 ] as const;
 const factoryIface = new Interface(FACTORY_ABI as never);
 const poolIface = new Interface(POOL_ABI as never);
+const indexedFactoryIface = new Interface([
+  { type: 'event', name: 'Created', anonymous: false, inputs: [{ name: 'pool', type: 'address', indexed: true }] },
+] as never);
 const defOf = (iface: Interface, name: string, signature: string): EventDef => ({
   name, signature, topic0: iface.getEvent(signature)!.topicHash.toLowerCase(),
 });
@@ -131,6 +134,11 @@ class FakeChain {
 
   created(pool: string, b: number, t: number, l: number): RawLog {
     return this.add(F, factoryIface.encodeEventLog('Created', [pool]), b, t, l);
+  }
+
+  /** Same signature and topic0 as Created(address), but the pool is indexed: data is empty. */
+  createdIndexed(pool: string, b: number, t: number, l: number): RawLog {
+    return this.add(F, indexedFactoryIface.encodeEventLog('Created', [pool]), b, t, l);
   }
 
   swap(address: string, amount: bigint, b: number, t: number, l: number): RawLog {
@@ -542,6 +550,28 @@ describe('Indexer', () => {
     expect(await db.collection('sys_templates').countDocuments()).toBe(0);
     expect(await db.collection('sys_events').countDocuments()).toBe(2);
     expect(vi.mocked(console.error).mock.calls.flat().join('\n')).toMatch(/conflict|belongs|Factory/i);
+  });
+
+  it('skips a log it cannot decode, logs it once per address and topic0, and indexes the rest', async () => {
+    const fake = new FakeChain();
+    const bad = fake.createdIndexed(P, 10, 0, 0);
+    expect(bad.topics[0]).toBe(FactoryC.events.Created.topic0);
+    expect(bad.data).toBe('0x');
+    fake.createdIndexed(Q, 11, 0, 0);
+    fake.created(Q, 12, 0, 0);
+    const { indexer, store } = setup(fake, { head: 20 });
+    await indexer.init();
+
+    expect(await indexer.tick()).toBe('worked');
+    const events = await eventsSorted();
+    expect(events.map((e) => [e.blockNumber, e.event, e.data])).toEqual([[12, 'Created', { pool: Q }]]);
+    expect((await store.getChain(CHAIN_ID)).indexedBlock).toBe(20);
+    expect((await store.listTemplates(CHAIN_ID)).map((t) => t.address)).toEqual([Q]);
+    const errors = vi.mocked(console.error).mock.calls.map((c) => String(c[0])).filter((m) => m.includes('cannot decode'));
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain(F);
+    expect(errors[0]).toContain(FactoryC.events.Created.topic0);
+    expect(errors[0]).toContain('10/0/0');
   });
 
   it('throws when a log has no transaction in its block', async () => {
