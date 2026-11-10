@@ -27,6 +27,14 @@ describe('analyzeAbi', () => {
     expect(a.warnings.some((w) => /anonymous/i.test(w))).toBe(true);
   });
 
+  it('rejects two emitted events or functions with the same name', () => {
+    const ev = (name: string, type: string) => ({ type: 'event', name, anonymous: false, inputs: [{ name: 'x', type, indexed: false }] });
+    expect(() => analyzeAbi('E', [ev('Transfer', 'uint256'), ev('Transfer', 'address'), ev('Transfer_1', 'bool')]))
+      .toThrow(/E: two events would be named "Transfer_1"/);
+    const fn = (name: string) => ({ type: 'function', name, stateMutability: 'view', inputs: [], outputs: [] });
+    expect(() => analyzeAbi('F', [fn('address'), fn('address_fn')])).toThrow(/F: two functions would be named "address_fn"/);
+  });
+
   it('rejects invalid contract and member names', () => {
     expect(() => analyzeAbi('my-token', abi)).toThrow(/my-token/);
     const bad = [{ type: 'function', name: 'bad-name', stateMutability: 'view', inputs: [], outputs: [] }];

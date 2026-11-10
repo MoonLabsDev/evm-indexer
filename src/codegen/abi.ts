@@ -58,6 +58,21 @@ function disambiguate<T extends { name: string }>(items: T[], key: (t: T) => str
   return out;
 }
 
+/** Two emitted members with one name (e.g. overloads get -> get_0, get_1 next to a real get_0) cannot both exist. */
+function assertUnique(contractName: string, kind: string, items: { name: string; signature: string }[]): void {
+  const seen = new Map<string, string>();
+  for (const it of items) {
+    const other = seen.get(it.name);
+    if (other !== undefined) {
+      throw new Error(
+        `${contractName}: two ${kind} would be named "${it.name}" (${other} and ${it.signature}); ` +
+          'rename one of them in the ABI',
+      );
+    }
+    seen.set(it.name, it.signature);
+  }
+}
+
 function assertName(kind: string, name: string): void {
   if (!IDENT.test(name)) throw new Error(`Invalid ${kind} name "${name}": must match ${IDENT}`);
 }
@@ -104,5 +119,7 @@ export function analyzeAbi(
   });
   const events = disambiguate(evs, (e) => e.topic0);
   events.forEach((e) => assertName('event', e.name));
+  assertUnique(contractName, 'functions', functions);
+  assertUnique(contractName, 'events', events);
   return { functions, events, warnings };
 }

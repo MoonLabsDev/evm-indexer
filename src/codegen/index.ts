@@ -65,6 +65,17 @@ export function runCodegen(opts: CodegenOptions): { files: string[]; warnings: s
     } catch (e) {
       throw new Error(`${opts.schemaPath}: ${(e as Error).message}`);
     }
+    const byLower = new Map<string, string>();
+    for (const table of Object.keys(schema)) {
+      const other = byLower.get(table.toLowerCase());
+      if (other !== undefined) {
+        throw new Error(
+          `${opts.schemaPath}: tables "${other}" and "${table}" differ only by case; their generated files ` +
+            'would overwrite each other on a case-insensitive file system; rename one of them',
+        );
+      }
+      byLower.set(table.toLowerCase(), table);
+    }
     for (const [table, fields] of Object.entries(schema)) {
       const clash = exported.get(table);
       if (clash !== undefined && clash !== table) {

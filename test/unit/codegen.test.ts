@@ -145,6 +145,22 @@ describe('runCodegen', () => {
     writesNothing(setup('collide', { SampleEvents: { x: 'string' } }, { 'Sample.json': sampleAbi() }), /SampleEvents.*Sample/);
   });
 
+  it('writes nothing when two tables differ only by case', () => {
+    writesNothing(
+      setup('case', { Pool: { x: 'string' }, pool: { y: 'string' } }, { 'Sample.json': sampleAbi() }),
+      /"Pool" and "pool" differ only by case/,
+    );
+  });
+
+  it('writes nothing when a contract would get two members of the same name', () => {
+    const abi = [
+      ...sampleAbi(),
+      // a real get_0 next to the overloads get(uint256) / get(address), which become get_0 and get_1
+      { type: 'function', name: 'get_0', stateMutability: 'view', inputs: [], outputs: [{ name: '', type: 'uint256' }] },
+    ];
+    writesNothing(setup('dupmember', {}, { 'Sample.json': abi }), /Sample.*two functions.*"get_0"/);
+  });
+
   it('writes nothing when <Name>Entity collides with a contract or another table', () => {
     writesNothing(
       setup('dbl1', { Sample: { x: 'string' }, SampleEntity: { y: 'string' } }, { 'Sample.json': sampleAbi() }),
