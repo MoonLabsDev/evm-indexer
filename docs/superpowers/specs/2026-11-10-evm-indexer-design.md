@@ -195,8 +195,9 @@ One document per chain: `chainId`, `indexedBlock`, `processedBlock`, `currentRev
 
 ### `sys_templates`
 
-Unique key `{ chainId, template, address }`. Field `block`: the block of the event whose
-index callback created it.
+Unique key `{ chainId, template, address }`. Fields `block`, `txIndex`, `logIndex`: the
+position of the event whose index callback created it. Only the address's logs after that
+position are indexed, also after a retry or restart.
 
 ## 5. RPC pool
 
