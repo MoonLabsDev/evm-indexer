@@ -21,6 +21,12 @@ function paramName(p: ParamInfo, i: number): string {
   return isIdentifier(p.name) && !TS_RESERVED.has(p.name) ? p.name : `_${i}`;
 }
 
+/** Every name `emitContract` exports: the class, the event types and the events interface. */
+export function contractExports(contractName: string, abi: unknown[]): string[] {
+  const { events } = analyzeAbi(contractName, abi);
+  return [contractName, `${contractName}Events`, ...events.map((e) => `${contractName}${e.name}Event`)];
+}
+
 /** Emits the TypeScript source of one contract class. */
 export function emitContract(contractName: string, abi: unknown[], runtimeImport: string): string {
   const { functions, events } = analyzeAbi(contractName, abi);

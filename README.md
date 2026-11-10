@@ -118,7 +118,21 @@ Root keys are table names, each maps field names to a type string.
 
 Modifiers: `[]` for arrays, `?` for optional (`string[]?` is allowed, also on `ref`). A table
 cannot have a field named `id` (every entity has a string `id`, stored as `_id`) and a `ref`
-must point to an existing table. Table names must not equal contract (ABI file) names: both are exported from `generated/index.ts`.
+must point to an existing table.
+
+A table may share its name with a contract (ABI file). `generated/index.ts` exports all contracts
+by name; an entity named like a contract is exported as `<Name>Entity` instead (`codegen` prints a
+warning for each). Entities are also exported under their own name from `generated/entities`, and
+contracts from `generated/contracts`:
+
+```ts
+import { Pool, PoolEntity } from './generated';         // contract Pool, entity Pool
+import { Pool as PoolRow } from './generated/entities'; // the entity under its own name
+```
+
+`codegen` fails when `<Name>Entity` is itself taken by a contract or a table, or when a table is
+named like a type a contract file exports (`<Contract>Events`, `<Contract><Event>Event`). The
+MongoDB collection always follows the table name (`ent_<chainId>_Pool`).
 
 ### indexer.config.ts
 

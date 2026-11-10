@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'fs';
 import { basename, dirname, join } from 'path';
 import { analyzeAbi } from './abi';
-import { emitContract } from './contracts';
+import { contractExports, emitContract } from './contracts';
 import { emitEntity } from './entities';
 import { parseSchema } from './schema';
 
@@ -40,6 +40,7 @@ export function runCodegen(opts: CodegenOptions): { files: string[]; warnings: s
   const sources = new Map<string, string>(); // path relative to outDir -> content
   const warnings: string[] = [];
   const contracts: string[] = [];
+  const exported = new Map<string, string>(); // name exported by a contract file -> contract
 
   const abiFiles = readdirSync(opts.abiDir).filter((f) => f.toLowerCase().endsWith('.json')).sort();
   for (const file of abiFiles) {
@@ -53,6 +54,7 @@ export function runCodegen(opts: CodegenOptions): { files: string[]; warnings: s
       throw new Error(`${path}: ${(e as Error).message}`);
     }
     contracts.push(name);
+    for (const n of contractExports(name, abi)) exported.set(n, name);
   }
 
   const tables: string[] = [];
@@ -64,17 +66,43 @@ export function runCodegen(opts: CodegenOptions): { files: string[]; warnings: s
       throw new Error(`${opts.schemaPath}: ${(e as Error).message}`);
     }
     for (const [table, fields] of Object.entries(schema)) {
-      if (contracts.includes(table)) {
-        throw new Error(`Table "${table}" has the same name as contract "${table}"; both are exported from generated/index.ts`);
+      const clash = exported.get(table);
+      if (clash !== undefined && clash !== table) {
+        throw new Error(`Table "${table}" has the same name as a type exported by contract "${clash}"; rename the table`);
       }
       sources.set(`entities/${table}.ts`, emitEntity(table, fields, runtimeImport));
       tables.push(table);
     }
   }
 
+  // An entity named like a contract is exported from the index as <Name>Entity.
+  const entityExports = new Map<string, string>(); // exported name -> table
+  for (const table of tables) {
+    let name = table;
+    if (contracts.includes(table)) {
+      name = `${table}Entity`;
+      const other = exported.get(name) ?? (tables.includes(name) ? name : undefined);
+      if (other !== undefined) {
+        throw new Error(
+          `Entity "${table}" would be exported as "${name}", which collides with ${
+            exported.has(name) ? `contract "${exported.get(name)}"` : `table "${name}"`}; rename one of them`,
+        );
+      }
+      warnings.push(`entity ${table} is exported from ./generated as ${name} (contract ${table} has the same name)`);
+    }
+    entityExports.set(name, table);
+  }
+
+  const barrel = (lines: string[]) => (lines.length > 0 ? lines.join('\n') : 'export {};') + '\n';
+  sources.set('contracts/index.ts', barrel(contracts.map((c) => `export * from './${c}';`)));
+  sources.set('entities/index.ts', barrel(tables.map((t) => `export * from './${t}';`)));
   sources.set(
     'index.ts',
-    [...contracts.map((c) => `export * from './contracts/${c}';`), ...tables.map((t) => `export * from './entities/${t}';`)].join('\n') + '\n',
+    [
+      "export * from './contracts';",
+      ...[...entityExports].map(([name, table]) =>
+        name === table ? `export { ${table} } from './entities/${table}';` : `export { ${table} as ${name} } from './entities/${table}';`),
+    ].join('\n') + '\n',
   );
 
   const files: string[] = [];

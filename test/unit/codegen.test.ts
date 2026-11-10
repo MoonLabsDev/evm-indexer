@@ -110,7 +110,10 @@ describe('runCodegen', () => {
   it('treats a missing schema file as no entities', () => {
     const p = setup('noschema', {}, { 'Sample.json': sampleAbi() });
     const { files } = runCodegen({ ...p, schemaPath: join(p.root, 'missing.json') });
-    expect(files).toEqual([join(p.outDir, 'contracts', 'Sample.ts'), join(p.outDir, 'index.ts')]);
+    expect(files).toEqual([
+      join(p.outDir, 'contracts', 'Sample.ts'), join(p.outDir, 'contracts', 'index.ts'),
+      join(p.outDir, 'entities', 'index.ts'), join(p.outDir, 'index.ts'),
+    ]);
   });
 
   function writesNothing(p: ReturnType<typeof setup>, msg: RegExp) {
@@ -122,8 +125,61 @@ describe('runCodegen', () => {
     writesNothing(setup('badschema', { A: { x: 'nope' } }, { 'Sample.json': sampleAbi() }), /nope/);
   });
 
-  it('writes nothing when a table is named like a contract', () => {
-    writesNothing(setup('collide', { Sample: { x: 'string' } }, { 'Sample.json': sampleAbi() }), /Sample/);
+  it('writes nothing when a table is named like a type exported by a contract file', () => {
+    writesNothing(setup('collide', { SampleEvents: { x: 'string' } }, { 'Sample.json': sampleAbi() }), /SampleEvents.*Sample/);
+  });
+
+  it('writes nothing when <Name>Entity collides with a contract or another table', () => {
+    writesNothing(
+      setup('dbl1', { Sample: { x: 'string' }, SampleEntity: { y: 'string' } }, { 'Sample.json': sampleAbi() }),
+      /SampleEntity/,
+    );
+    writesNothing(
+      setup('dbl2', { Sample: { x: 'string' } }, { 'Sample.json': sampleAbi(), 'SampleEntity.json': sampleAbi() }),
+      /SampleEntity/,
+    );
+  });
+
+  it('allows a table named like a contract and exports the entity as <Name>Entity', async () => {
+    const p = setup('samename', { Sample: { x: 'string' }, Other: { y: 'int' } }, { 'Sample.json': sampleAbi() });
+    const { warnings } = runCodegen({ ...p, runtimeImport: runtimeFor(p.outDir) });
+    expect(warnings).toContain('entity Sample is exported from ./generated as SampleEntity (contract Sample has the same name)');
+    expect(warnings.filter((w) => w.includes('exported from ./generated as'))).toHaveLength(1);
+    const mod = await import(join(p.outDir, 'index.ts'));
+    expect(mod.Sample.events).toBeDefined();
+    expect(mod.Sample.table).toBeUndefined();
+    expect(mod.SampleEntity.table).toBe('Sample');
+    expect(mod.Other.table).toBe('Other');
+    const entities = await import(join(p.outDir, 'entities', 'index.ts'));
+    expect(entities.Sample.table).toBe('Sample');
+    expect(entities.Other.table).toBe('Other');
+    const contracts = await import(join(p.outDir, 'contracts', 'index.ts'));
+    expect(contracts.Sample.events).toBeDefined();
+    // The collection name still follows the table name.
+    const { EntityStore } = await import('../../src/store/entities');
+    const { setEntityStore } = await import('../../src/runtime/entity');
+    const { startMongo } = await import('../helpers/mongo');
+    const mongo = await startMongo();
+    setEntityStore(new EntityStore(mongo.db, 7));
+    try {
+      const e = new mod.SampleEntity('s1');
+      e.x = 'v';
+      await e.save();
+      const names = (await mongo.db.listCollections({}, { nameOnly: true }).toArray()).map((c) => c.name);
+      expect(names).toContain('ent_7_Sample');
+    } finally {
+      setEntityStore(null);
+      await mongo.stop();
+    }
+  });
+
+  it('exports an entity under its own name when no contract shares it', async () => {
+    const p = setup('nosame', { Thing: { x: 'string' } }, { 'Sample.json': sampleAbi() });
+    const { warnings } = runCodegen({ ...p, runtimeImport: runtimeFor(p.outDir) });
+    expect(warnings.filter((w) => w.includes('exported from'))).toEqual([]);
+    const mod = await import(join(p.outDir, 'index.ts'));
+    expect(mod.Thing.table).toBe('Thing');
+    expect(mod.ThingEntity).toBeUndefined();
   });
 
   it('writes nothing when an ABI file is invalid', () => {
