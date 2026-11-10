@@ -9,6 +9,18 @@ export interface EthCaller {
 
 let rpc: EthCaller | null = null;
 
+/** One ethers Interface per ABI array (a generated class passes the same static array every time). */
+const interfaces = new WeakMap<object, Interface>();
+
+function interfaceOf(abi: unknown[]): Interface {
+  let iface = interfaces.get(abi);
+  if (!iface) {
+    iface = new Interface(abi as never);
+    interfaces.set(abi, iface);
+  }
+  return iface;
+}
+
 export function setRpc(pool: EthCaller | null): void {
   rpc = pool;
 }
@@ -19,7 +31,7 @@ export class BaseContract {
 
   constructor(address: string, abi: unknown[]) {
     this.address = address.toLowerCase();
-    this._iface = new Interface(abi as never);
+    this._iface = interfaceOf(abi);
   }
 
   /** eth_call at the current context block; the function is looked up by its full signature. */

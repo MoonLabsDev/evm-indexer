@@ -33,6 +33,19 @@ class TestSample extends BaseContract {
   pairs() { return this._call('pairs()', []); }
 }
 
+describe('BaseContract', () => {
+  it('builds one ethers Interface per ABI, shared by every instance', () => {
+    const a = new TestSample(ADDR);
+    const b = new TestSample(ADDR2);
+    const ifaceOf = (c: BaseContract) => (c as unknown as { _iface: Interface })._iface;
+    expect(ifaceOf(a)).toBe(ifaceOf(b));
+    class Other extends BaseContract {
+      constructor(x: string) { super(x, [...(abi as unknown[])]); }
+    }
+    expect(ifaceOf(new Other(ADDR))).not.toBe(ifaceOf(a));
+  });
+});
+
 describe('decodeLog', () => {
   it('decodes tuple arrays and round-trips through serialization', () => {
     const batch = iface.getEvent('Batch')!;
