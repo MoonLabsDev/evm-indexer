@@ -1,79 +1,96 @@
 {
   "plan": "e:/MoonLabs/Internal/Code/utils/evm-indexer/docs/superpowers/plans/2026-11-10-evm-indexer.md",
-  "updatedAt": 1794335312405,
+  "updatedAt": 1794345609922,
   "overhead": {
     "costUsd": {
-      "b215dacd-31aa-4c84-9e47-64d98f06cb9d": 0.6722181999999997
+      "b215dacd-31aa-4c84-9e47-64d98f06cb9d": 1.673714499999999
     }
   },
   "phases": [
     {
       "id": "p1",
       "title": "Scaffold, shared types, logging",
-      "status": "pending",
+      "status": "done",
       "tasks": [
         {
           "id": "p1t1",
           "title": "Scaffold. `package.json` per Global Constraints with scripts `build: tsc`, `test: vitest run`, `test:unit: vitest run test/unit`, `test:integration: vitest run test/integration`; deps `ethers@^6 mongodb@^6 express@^4 chalk@^4 decimal.js commander tsx dotenv`; devDeps `typescript vitest @types/node @types/express mongodb-memory-server hardhat@^2`. `tsconfig.json`: `target ES2022`, `strict`, `declaration`, `rootDir src`, `outDir dist`, `esModuleInterop`. Run `npm install`. Write `src/types.ts` exactly as above.",
-          "status": "pending",
-          "costUsd": {},
+          "status": "done",
+          "costUsd": {
+            "b215dacd-31aa-4c84-9e47-64d98f06cb9d": 1.2218717999999988
+          },
           "approx": false,
-          "updatedAt": 0
+          "updatedAt": 1794337198019,
+          "startedAt": 1794337028051,
+          "doneAt": 1794337198019
         },
         {
           "id": "p1t2",
           "title": "Failing test `test/unit/log.test.ts`:",
-          "status": "pending",
+          "status": "done",
           "costUsd": {},
           "approx": false,
-          "updatedAt": 0
+          "updatedAt": 1794337198542,
+          "startedAt": 1794337198542,
+          "doneAt": 1794337198542
         },
         {
           "id": "p1t3",
           "title": "Run `npx vitest run test/unit/log.test.ts` → FAIL (module missing).",
-          "status": "pending",
+          "status": "done",
           "costUsd": {},
           "approx": false,
-          "updatedAt": 0
+          "updatedAt": 1794337199069,
+          "startedAt": 1794337199069,
+          "doneAt": 1794337199069
         },
         {
           "id": "p1t4",
           "title": "Implement `src/log/index.ts`.",
-          "status": "pending",
+          "status": "done",
           "costUsd": {},
           "approx": false,
-          "updatedAt": 0
+          "updatedAt": 1794337199597,
+          "startedAt": 1794337199597,
+          "doneAt": 1794337199597
         },
         {
           "id": "p1t5",
           "title": "Run again → PASS; `npx tsc --noEmit` clean.",
-          "status": "pending",
+          "status": "done",
           "costUsd": {},
           "approx": false,
-          "updatedAt": 0
+          "updatedAt": 1794337200129,
+          "startedAt": 1794337200129,
+          "doneAt": 1794337200129
         },
         {
           "id": "p1t6",
           "title": "`git add -A && git commit -m \"chore: scaffold package, shared types and logging\"`",
-          "status": "pending",
+          "status": "done",
           "costUsd": {},
           "approx": false,
-          "updatedAt": 0
+          "updatedAt": 1794337200663,
+          "startedAt": 1794337200663,
+          "doneAt": 1794337200663
         }
       ]
     },
     {
       "id": "p2",
       "title": "chains.json and addresses.json loaders",
-      "status": "pending",
+      "status": "running",
       "tasks": [
         {
           "id": "p2t1",
           "title": "Failing tests:",
-          "status": "pending",
-          "costUsd": {},
-          "approx": false,
-          "updatedAt": 0
+          "status": "running",
+          "costUsd": {
+            "b215dacd-31aa-4c84-9e47-64d98f06cb9d": 15.134830070555543
+          },
+          "approx": true,
+          "updatedAt": 1794345620081,
+          "startedAt": 1794337201206
         },
         {
           "id": "p2t2",
@@ -316,7 +333,7 @@
     {
       "id": "p7",
       "title": "Entity codegen and entity runtime",
-      "status": "pending",
+      "status": "running",
       "tasks": [
         {
           "id": "p7t1",
@@ -369,33 +386,42 @@
         {
           "id": "p7t7",
           "title": "`git commit -m \"feat: entity codegen, field codecs and entity runtime\"`",
-          "status": "pending",
-          "costUsd": {},
-          "approx": false,
-          "updatedAt": 0
+          "status": "running",
+          "costUsd": {
+            "b215dacd-31aa-4c84-9e47-64d98f06cb9d": 5.429483903888887
+          },
+          "approx": true,
+          "updatedAt": 1794345620081,
+          "startedAt": 1794338744527
         }
       ]
     },
     {
       "id": "p8",
       "title": "defineIndexer, defineTemplate, config loading",
-      "status": "pending",
+      "status": "running",
       "tasks": [
         {
           "id": "p8t1",
           "title": "Failing runtime tests:",
-          "status": "pending",
-          "costUsd": {},
-          "approx": false,
-          "updatedAt": 0
+          "status": "running",
+          "costUsd": {
+            "b215dacd-31aa-4c84-9e47-64d98f06cb9d": 5.650914370555555
+          },
+          "approx": true,
+          "updatedAt": 1794345620081,
+          "startedAt": 1794338689314
         },
         {
           "id": "p8t2",
           "title": "Failing type test `define.types.test.ts` (vitest `expectTypeOf` + `@ts-expect-error`; run with `npx vitest run --typecheck`):",
-          "status": "pending",
-          "costUsd": {},
-          "approx": false,
-          "updatedAt": 0
+          "status": "running",
+          "costUsd": {
+            "b215dacd-31aa-4c84-9e47-64d98f06cb9d": 5.650914370555555
+          },
+          "approx": true,
+          "updatedAt": 1794345620081,
+          "startedAt": 1794338689314
         },
         {
           "id": "p8t3",
@@ -496,7 +522,7 @@
     {
       "id": "p11",
       "title": "Indexer loop",
-      "status": "pending",
+      "status": "running",
       "tasks": [
         {
           "id": "p11t1",
@@ -509,10 +535,13 @@
         {
           "id": "p11t2",
           "title": "Run `npx vitest run test/unit/indexer.test.ts` → FAIL. Step 3: Implement. Step 4: Run → PASS.",
-          "status": "pending",
-          "costUsd": {},
-          "approx": false,
-          "updatedAt": 0
+          "status": "running",
+          "costUsd": {
+            "b215dacd-31aa-4c84-9e47-64d98f06cb9d": 3.4074408288888876
+          },
+          "approx": true,
+          "updatedAt": 1794345620081,
+          "startedAt": 1794339907236
         },
         {
           "id": "p11t3",
@@ -527,23 +556,29 @@
     {
       "id": "p12",
       "title": "Processor loop",
-      "status": "pending",
+      "status": "running",
       "tasks": [
         {
           "id": "p12t1",
           "title": "Failing tests (memory Mongo; events inserted directly; callbacks write entities via hand-written `Counter` entity):",
-          "status": "pending",
-          "costUsd": {},
-          "approx": false,
-          "updatedAt": 0
+          "status": "running",
+          "costUsd": {
+            "b215dacd-31aa-4c84-9e47-64d98f06cb9d": 3.4074408288888876
+          },
+          "approx": true,
+          "updatedAt": 1794345620081,
+          "startedAt": 1794339907236
         },
         {
           "id": "p12t2",
           "title": "Run → FAIL. Step 3: Implement. Step 4: Run → PASS.",
-          "status": "pending",
-          "costUsd": {},
-          "approx": false,
-          "updatedAt": 0
+          "status": "running",
+          "costUsd": {
+            "b215dacd-31aa-4c84-9e47-64d98f06cb9d": 3.17406681222222
+          },
+          "approx": true,
+          "updatedAt": 1794345620081,
+          "startedAt": 1794340042012
         },
         {
           "id": "p12t3",
@@ -558,23 +593,29 @@
     {
       "id": "p13",
       "title": "Status server",
-      "status": "pending",
+      "status": "running",
       "tasks": [
         {
           "id": "p13t1",
           "title": "Failing tests (port 0, global `fetch`): fresh loop → 200 `ok`; `lastLoopAt` 61 s old → 503; `/status` returns the object from `status()` verbatim; unknown path → 404.",
-          "status": "pending",
-          "costUsd": {},
-          "approx": false,
-          "updatedAt": 0
+          "status": "running",
+          "costUsd": {
+            "b215dacd-31aa-4c84-9e47-64d98f06cb9d": 3.17406681222222
+          },
+          "approx": true,
+          "updatedAt": 1794345620081,
+          "startedAt": 1794340042012
         },
         {
           "id": "p13t2",
           "title": "Run → FAIL. Step 3: Implement. Step 4: Run → PASS.",
-          "status": "pending",
-          "costUsd": {},
-          "approx": false,
-          "updatedAt": 0
+          "status": "running",
+          "costUsd": {
+            "b215dacd-31aa-4c84-9e47-64d98f06cb9d": 3.010839812222218
+          },
+          "approx": true,
+          "updatedAt": 1794345620081,
+          "startedAt": 1794340132838
         },
         {
           "id": "p13t3",
@@ -620,7 +661,7 @@
     {
       "id": "p15",
       "title": "End-to-end integration test",
-      "status": "pending",
+      "status": "running",
       "tasks": [
         {
           "id": "p15t1",
@@ -633,10 +674,13 @@
         {
           "id": "p15t2",
           "title": "Run `npm run test:integration` → FAIL on the first assertion that exposes a real defect, or PASS. Fix defects in the owning module with a unit test added there first.",
-          "status": "pending",
-          "costUsd": {},
-          "approx": false,
-          "updatedAt": 0
+          "status": "running",
+          "costUsd": {
+            "b215dacd-31aa-4c84-9e47-64d98f06cb9d": 1.7549147899999962
+          },
+          "approx": true,
+          "updatedAt": 1794345620081,
+          "startedAt": 1794341957313
         },
         {
           "id": "p15t3",

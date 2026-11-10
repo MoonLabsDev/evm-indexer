@@ -509,3 +509,76 @@ Integration (local hardhat node + a throwaway Mongo database, dropped afterwards
 - an index callback creates a template in the same range; its later events are indexed in order,
 - `reset --chain` and `reset` return to the expected empty state,
 - restart mid-range does not duplicate events.
+
+## 13. Amendments made during implementation
+
+These decisions were taken while building and reviewing. Where they differ from the
+sections above, this section wins.
+
+**Config loading (§2).** The CLI registers `tsx` globally and loads `indexer.config.ts`
+with Node's `require`, so the client project and the CLI share one copy of the runtime.
+CommonJS and ESM client projects work; top-level `await` in the config does not.
+
+**RPC pool (§5, §5.1).**
+- A "too large" error at minimum size switches to the next RPC at once, without the
+  retry delays.
+- An eth_call revert (JSON-RPC code 3 or a "revert" message) is fatal and never retried.
+- A "method not supported" error moves to the next RPC; the first refusal is thrown once
+  every RPC has refused.
+- With more than one RPC, a second timeout in a row on the same RPC fails over instead of
+  halving further.
+
+**Scan (§6.2).**
+- Backfill stops at `target − headThreshold`; the last `headThreshold` blocks are always
+  scanned in head mode, which detects a node that lags behind the head it reported.
+- A log that matches by topic0 but cannot be decoded with the ABI is skipped and logged
+  once per address and topic0.
+
+**Templates (§4, §6.3).** `sys_templates` stores the creating event's `block`, `txIndex`
+and `logIndex`. Only the address's logs after that position are indexed, identically after
+a retry or restart. An address belongs to one source: two static contracts sharing an
+address is a startup error; a template creating an already registered address is skipped
+with a warning.
+
+**Processor (§7.2).**
+- The revision switch is: drop entities, clear stamps that already carry the new revision,
+  then set `entityRevisionId`.
+- The query for unprocessed events also has `blockNumber ≥ processedBlock`.
+- The transaction is loaded only for events that have a process callback.
+- An event whose source or event name is no longer in the config is stamped and skipped
+  with one warning.
+
+**Codegen (§8).**
+- Event args store each bigint as `{ __bigint: "<decimal>" }`.
+- A contract and an entity may share a name. `./generated` then exports the entity as
+  `<Name>Entity`; both stay importable from `./generated/contracts` and
+  `./generated/entities`. A table named like a generated contract type is an error.
+- Array reference accessors drop one trailing "s" from the field name: `tokens` gives
+  `tokenIds`, `getTokens()`, `setTokens()`.
+- `int` must be a safe integer. Field names starting with `_` are reserved.
+- Generated files use `import type` for runtime types and import `Decimal` from the
+  runtime package. Table names differing only by case and duplicate generated member
+  names are rejected.
+
+**CLI (§9).**
+- `set-revision --revision <n>` must be greater than the current revision.
+- `reset` refuses to run while an indexer or processor heartbeat for an affected chain is
+  fresh, unless `--force` is given. `--yes` does not bypass this. `reset` ignores
+  `CHAIN_ID`; only `--chain` selects a chain.
+- `index` and `process` write their heartbeat every 10 s from start to stop. On
+  SIGINT/SIGTERM they finish the current event or range, clear the heartbeat, close the
+  server and the database, and exit 0 (forced after 30 s). A restart or reset after a
+  clean stop is not refused; after a crash it is refused for up to 60 s.
+- `--root <dir>` selects the project folder (default: current directory).
+
+**Status endpoint (§10).** `/health` reflects the last progress (loop iteration,
+processed event, or indexer scan/store step) and does not advance while ticks keep
+failing.
+
+**Logging (§11).** The processor also prints a progress line with ETA. `--debug` adds
+lines for RPC retry, failover, resize and rate-limit gap, and per stored and per processed
+event.
+
+**Testing (§12).** Unit tests use mongodb-memory-server. Integration tests run against a
+local hardhat node, including one that runs the built CLI as a child process against a
+client project that imports `evm-indexer` by package name.
