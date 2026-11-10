@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { FakeTransport } from '../helpers/fakeTransport';
 import { RpcPool } from '../../src/rpc/pool';
+import { setDebug } from '../../src/log';
 import { RpcError, ResizeError, AllRpcFailedError } from '../../src/rpc/errors';
 
 function setup(overrides: Partial<ConstructorParameters<typeof RpcPool>[1]> = {}) {
@@ -236,5 +237,129 @@ describe('RpcPool', () => {
     a.on('eth_getBlockByNumber', () => { throw err; });
     await expect(pool.getBlocks([1, 2])).rejects.toBeInstanceOf(ResizeError);
     expect(pool.size('blockBatch')).toBe(5);
+  });
+
+  it('decodes a transaction without nonce or value as 0', async () => {
+    const { a, pool } = setup();
+    a.on('eth_getBlockByNumber', () => ({
+      ...rawBlock(5),
+      transactions: [{ hash: '0x01', from: '0x02', to: null, input: '0x', transactionIndex: '0x0' }],
+    }));
+    const [blk] = await pool.getBlocks([5]);
+    expect(blk.transactions[0]).toMatchObject({ nonce: 0, value: 0n, gasPrice: 0n });
+  });
+});
+
+describe('RpcPool: unsupported methods', () => {
+  it('moves to the next RPC on an unsupported method, without retries', async () => {
+    const { a, b, pool, sleeps } = setup();
+    a.on('eth_call', () => { throw new RpcError('the method eth_call does not exist/is not available', -32601); });
+    b.on('eth_call', () => '0x01');
+    expect(await pool.ethCall('0xTo', '0xdata', 5)).toBe('0x01');
+    expect(a.calls.length).toBe(1);
+    expect(b.calls.length).toBe(1);
+    expect(sleeps).toEqual([]);
+  });
+
+  it('throws the original error once every RPC refused the method', async () => {
+    const { a, b, pool } = setup();
+    a.on('eth_call', () => { throw new RpcError('method not found', -32601); });
+    b.on('eth_call', () => { throw new RpcError('eth_call is not supported', -32601); });
+    const err = await pool.ethCall('0xTo', '0xdata', 5).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RpcError);
+    expect((err as RpcError).message).toBe('method not found');
+    expect(a.calls.length).toBe(1);
+    expect(b.calls.length).toBe(1);
+  });
+
+  it('keeps the receipts fallback inside getBlockLogs on the same RPC', async () => {
+    const { a, b, pool } = setup();
+    a.on('eth_getBlockReceipts', () => { throw new RpcError('method not found', -32601); });
+    a.on('eth_getLogs', () => []);
+    expect(await pool.getBlockLogs(5)).toEqual([]);
+    expect(b.calls.length).toBe(0);
+  });
+});
+
+describe('RpcPool: hung endpoint', () => {
+  const timeout = () => { const e = new Error('The operation was aborted due to timeout'); e.name = 'AbortError'; return e; };
+
+  it('a second timeout in a row on the same RPC fails over instead of halving again', async () => {
+    const { a, b, pool } = setup();
+    a.on('eth_getLogs', () => { throw timeout(); });
+    b.on('eth_getLogs', () => []);
+    await expect(pool.getLogs(filter)).rejects.toBeInstanceOf(ResizeError);
+    expect(pool.size('logRange')).toBe(250);
+    expect(await pool.getLogs(filter)).toEqual([]);
+    expect(a.calls.length).toBe(2);
+    expect(b.calls.length).toBe(1);
+    expect(pool.size('logRange')).toBe(625); // b's own size, grown after its success
+  });
+
+  it('two timeouts in a row on an unsized call skip the rest of the ladder', async () => {
+    const { a, b, pool, sleeps } = setup();
+    a.on('eth_blockNumber', () => { throw timeout(); });
+    b.on('eth_blockNumber', () => '0x2');
+    expect(await pool.getBlockNumber()).toBe(2);
+    expect(a.calls.length).toBe(2);
+    expect(sleeps).toEqual([100]);
+  });
+
+  it('a success in between resets the count', async () => {
+    const { a, b, pool } = setup();
+    let n = 0;
+    a.on('eth_getLogs', () => { if (n++ % 2 === 0) throw timeout(); return []; });
+    b.on('eth_getLogs', () => []);
+    await expect(pool.getLogs(filter)).rejects.toBeInstanceOf(ResizeError);
+    await pool.getLogs(filter);
+    await expect(pool.getLogs(filter)).rejects.toBeInstanceOf(ResizeError);
+    expect(b.calls.length).toBe(0);
+  });
+
+  it('with a single RPC it keeps halving (there is nowhere to fail over to)', async () => {
+    const a = new FakeTransport('a');
+    const pool = new RpcPool([a], {
+      retryDelays: [100], logRange: { start: 500, min: 1, max: 2000 }, blockBatch: { start: 10, min: 1, max: 100 },
+      sleep: async () => {},
+    });
+    a.on('eth_getLogs', () => { throw timeout(); });
+    await expect(pool.getLogs(filter)).rejects.toBeInstanceOf(ResizeError);
+    await expect(pool.getLogs(filter)).rejects.toBeInstanceOf(ResizeError);
+    expect(pool.size('logRange')).toBe(125);
+  });
+});
+
+describe('RpcPool: --debug output', () => {
+  afterEach(() => {
+    setDebug(false);
+    vi.restoreAllMocks();
+  });
+
+  const debugLines = () => vi.mocked(console.log).mock.calls.map((c) => String(c[0])).filter((m) => m.includes('[DEBUG]'));
+
+  it('logs retry, failover, resize and the rate-limit gap with the RPC URL and the error kind', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    setDebug(true);
+    const { a, b, pool } = setup();
+    let n = 0;
+    a.on('eth_blockNumber', () => { throw new RpcError('down', undefined, 503); });
+    b.on('eth_blockNumber', () => '0x1');
+    a.on('eth_getLogs', () => { if (n++ === 0) throw new RpcError('Too Many Requests', undefined, 429); return []; });
+    await expect(pool.getLogs(filter)).rejects.toBeInstanceOf(ResizeError);
+    await pool.getBlockNumber();
+    const lines = debugLines();
+    expect(lines.some((m) => /rate-limit gap/.test(m) && m.includes('rpc a:') && m.includes('100 ms'))).toBe(true);
+    expect(lines.some((m) => /resize/.test(m) && m.includes('rpc a:') && m.includes('rateLimit') && m.includes('logRange 250'))).toBe(true);
+    expect(lines.some((m) => /retry/.test(m) && m.includes('rpc a:') && m.includes('network'))).toBe(true);
+    expect(lines.some((m) => /failover/.test(m) && m.includes('a -> b') && m.includes('network'))).toBe(true);
+  });
+
+  it('prints nothing without --debug', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    const { a, b, pool } = setup();
+    a.on('eth_blockNumber', () => { throw new RpcError('down', undefined, 503); });
+    b.on('eth_blockNumber', () => '0x1');
+    await pool.getBlockNumber();
+    expect(vi.mocked(console.log)).not.toHaveBeenCalled();
   });
 });

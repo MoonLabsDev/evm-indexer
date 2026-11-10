@@ -1,3 +1,4 @@
+import { log } from '../log';
 import type { RawBlock, RawLog, RawTx, SizeBounds } from '../types';
 import { AdaptiveSize, RateGap } from './sizer';
 import { AllRpcFailedError, ResizeError, RpcError, classifyError } from './errors';
@@ -19,6 +20,8 @@ interface TransportState {
   gap: RateGap;
   lastRequest: number;
   receiptsUnsupported: boolean;
+  /** timeouts in a row on this RPC; two of them mark it as hung */
+  timeouts: number;
 }
 
 interface Sized<T> { kind: SizeKind; logCount: (result: T) => number }
@@ -48,8 +51,8 @@ function decodeTx(r: Raw): RawTx {
     hash: low(r.hash),
     from: low(r.from),
     to: r.to == null ? null : low(r.to),
-    value: big(r.value),
-    nonce: num(r.nonce),
+    value: big(r.value ?? '0x0'),
+    nonce: num(r.nonce ?? '0x0'),
     gasPrice: big(r.gasPrice ?? r.maxFeePerGas ?? '0x0'),
     input: r.input as string,
     transactionIndex: num(r.transactionIndex),
@@ -82,6 +85,7 @@ export class RpcPool {
       gap: new RateGap(),
       lastRequest: Number.NEGATIVE_INFINITY,
       receiptsUnsupported: false,
+      timeouts: 0,
     }));
   }
 
@@ -145,11 +149,17 @@ export class RpcPool {
   /**
    * Runs one request through the ladder. Retryable errors sleep per `retryDelays` on the same RPC,
    * then the pool moves to the next RPC; once every RPC exhausted its ladder in a row it gives up.
+   * A too-large answer, an unsupported method and a second timeout in a row (a hung endpoint) skip
+   * the rest of the ladder. When every RPC refused the method, the first refusal is thrown.
    */
   private async exec<T>(op: (s: TransportState) => Promise<T>, sized?: Sized<T>): Promise<T> {
     let exhausted = 0;
+    let unsupported: unknown = null;
+    let refusals = 0;
     for (;;) {
       const s = this.states[this.active];
+      const url = s.transport.url;
+      let lastKind = '';
       for (let attempt = 0; ; attempt++) {
         try {
           await this.waitGap(s);
@@ -157,23 +167,44 @@ export class RpcPool {
           const started = s.lastRequest;
           const result = await op(s);
           s.gap.onSuccess();
+          s.timeouts = 0;
           if (sized) s.sizes[sized.kind].onSuccess(this.now() - started, sized.logCount(result));
           return result;
         } catch (err) {
           const kind = classifyError(err);
-          if (kind === 'fatal' || kind === 'unsupported') throw err;
-          if (kind === 'rateLimit') s.gap.on429();
+          lastKind = kind;
+          if (kind === 'fatal') throw err;
+          s.timeouts = kind === 'timeout' ? s.timeouts + 1 : 0;
+          if (kind === 'unsupported') {
+            if (unsupported === null) unsupported = err;
+            refusals += 1;
+            break;
+          }
+          if (kind === 'rateLimit') {
+            s.gap.on429();
+            log.debug(`rpc ${url}: rate-limit gap now ${s.gap.ms} ms`);
+          }
+          // a hung endpoint: a second timeout in a row goes to the next RPC instead of halving again
+          const hung = kind === 'timeout' && s.timeouts >= 2 && this.states.length > 1;
+          if (hung) break;
           if (sized && (kind === 'tooLarge' || kind === 'timeout' || kind === 'rateLimit') && s.sizes[sized.kind].halve()) {
+            log.debug(`rpc ${url}: resize after ${kind}, ${sized.kind} ${s.sizes[sized.kind].value}`);
             if (kind === 'rateLimit') await this.sleep(this.opts.retryDelays[0] ?? 0);
             throw new ResizeError();
           }
           // a too-large answer will not improve on a retry: go straight to the next RPC
           if (kind === 'tooLarge' || attempt >= this.opts.retryDelays.length) break;
+          log.debug(`rpc ${url}: retry ${attempt + 1} after ${kind} in ${this.opts.retryDelays[attempt]} ms`);
           await this.sleep(this.opts.retryDelays[attempt]);
         }
       }
-      if (++exhausted >= this.states.length) throw new AllRpcFailedError();
+      s.timeouts = 0;
+      if (++exhausted >= this.states.length) {
+        if (refusals === this.states.length) throw unsupported;
+        throw new AllRpcFailedError();
+      }
       this.active = (this.active + 1) % this.states.length;
+      log.debug(`rpc failover ${url} -> ${this.states[this.active].transport.url} after ${lastKind}`);
     }
   }
 
