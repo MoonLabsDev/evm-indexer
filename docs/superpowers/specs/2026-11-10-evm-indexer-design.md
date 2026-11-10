@@ -173,7 +173,7 @@ collections `ent_<chainId>_<Table>`.
 | `txHash` | Links to `sys_transactions` |
 | `source` | Contract or template name from the config |
 | `event` | Event name as used in the config (incl. overload suffix) |
-| `data` | Decoded args; bigints stored as decimal strings |
+| `data` | Decoded args; each bigint stored as `{ __bigint: "<decimal string>" }` so nested values round-trip |
 | `processRevisionId` | `-1` when inserted; set to the current revision after its handler ran |
 
 Indexes: the unique key; `{ chainId, blockNumber, txIndex, logIndex }` for ordered reads;

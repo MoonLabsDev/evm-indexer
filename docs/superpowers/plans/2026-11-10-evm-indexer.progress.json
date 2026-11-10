@@ -1,0 +1,660 @@
+{
+  "plan": "e:/MoonLabs/Internal/Code/utils/evm-indexer/docs/superpowers/plans/2026-11-10-evm-indexer.md",
+  "updatedAt": 1794335312405,
+  "overhead": {
+    "costUsd": {
+      "b215dacd-31aa-4c84-9e47-64d98f06cb9d": 0.6722181999999997
+    }
+  },
+  "phases": [
+    {
+      "id": "p1",
+      "title": "Scaffold, shared types, logging",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "p1t1",
+          "title": "Scaffold. `package.json` per Global Constraints with scripts `build: tsc`, `test: vitest run`, `test:unit: vitest run test/unit`, `test:integration: vitest run test/integration`; deps `ethers@^6 mongodb@^6 express@^4 chalk@^4 decimal.js commander tsx dotenv`; devDeps `typescript vitest @types/node @types/express mongodb-memory-server hardhat@^2`. `tsconfig.json`: `target ES2022`, `strict`, `declaration`, `rootDir src`, `outDir dist`, `esModuleInterop`. Run `npm install`. Write `src/types.ts` exactly as above.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p1t2",
+          "title": "Failing test `test/unit/log.test.ts`:",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p1t3",
+          "title": "Run `npx vitest run test/unit/log.test.ts` → FAIL (module missing).",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p1t4",
+          "title": "Implement `src/log/index.ts`.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p1t5",
+          "title": "Run again → PASS; `npx tsc --noEmit` clean.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p1t6",
+          "title": "`git add -A && git commit -m \"chore: scaffold package, shared types and logging\"`",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        }
+      ]
+    },
+    {
+      "id": "p2",
+      "title": "chains.json and addresses.json loaders",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "p2t1",
+          "title": "Failing tests:",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p2t2",
+          "title": "Run `npx vitest run test/unit/config.test.ts` → FAIL.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p2t3",
+          "title": "Implement both files. Bounds valid when `1 ≤ min ≤ start ≤ max`. Address valid when `/^0x[0-9a-fA-F]{40}$/`. `block` must be an integer ≥ 0.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p2t4",
+          "title": "Run → PASS.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p2t5",
+          "title": "`git commit -am \"feat: chains and addresses config loaders\"` (add new files).",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        }
+      ]
+    },
+    {
+      "id": "p3",
+      "title": "Timestamp and context",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "p3t1",
+          "title": "Failing tests:",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p3t2",
+          "title": "Run `npx vitest run test/unit/runtime.test.ts` → FAIL.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p3t3",
+          "title": "Implement. `Timestamp` is immutable (`Object.freeze`); `date` returns a fresh `Date` each access.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p3t4",
+          "title": "Run → PASS. Export both modules from `src/index.ts`.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p3t5",
+          "title": "`git commit -m \"feat: Timestamp and callback context\"`",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        }
+      ]
+    },
+    {
+      "id": "p4",
+      "title": "RPC pool with retry, failover and adaptive sizing",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "p4t1",
+          "title": "Failing sizer tests:",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p4t2",
+          "title": "Failing pool tests (fake `sleep` records delays; two `FakeTransport`s `a`, `b`):",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p4t3",
+          "title": "Run `npx vitest run test/unit/sizer.test.ts test/unit/pool.test.ts` → FAIL.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p4t4",
+          "title": "Implement the four source files and the fake. `HttpTransport` uses global `fetch` with `AbortController`; a JSON-RPC `error` member becomes `RpcError(message, code)`, a non-2xx response `RpcError(text, undefined, status)`.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p4t5",
+          "title": "Run → PASS.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p4t6",
+          "title": "`git commit -m \"feat: RPC pool with failover, backoff and adaptive sizing\"`",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        }
+      ]
+    },
+    {
+      "id": "p5",
+      "title": "MongoDB stores",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "p5t1",
+          "title": "Failing tests:",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p5t2",
+          "title": "Run `npx vitest run test/unit/store.test.ts` → FAIL.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p5t3",
+          "title": "Implement. `nextUnprocessed` filter `{ chainId, processRevisionId: { $ne: revisionId }, blockNumber: { $lte: maxBlock } }` sorted `blockNumber, txIndex, logIndex`. Bulk writes are unordered `bulkWrite` upserts; empty arrays are a no-op.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p5t4",
+          "title": "Run → PASS.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p5t5",
+          "title": "`git commit -m \"feat: system and entity stores\"`",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        }
+      ]
+    },
+    {
+      "id": "p6",
+      "title": "Contract codegen and contract runtime",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "p6t1",
+          "title": "Fixture `Sample.json`: `balanceOf(address) view`, overloads `get(uint256) view` + `get(address) view`, `info() view returns (uint256 a, address b)`, `pairs() view returns ((uint256 x, address y)[])`, `transfer(address,uint256) nonpayable`, events `Transfer(address indexed from, address indexed to, uint256 value)`, `Transfer(address indexed from, uint256 value)`, `Batch((uint256 id, uint256[] amounts)[] items)`, one anonymous event.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p6t2",
+          "title": "Failing tests:",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p6t3",
+          "title": "Run `npx vitest run test/unit/abi.test.ts test/unit/contractRuntime.test.ts` → FAIL.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p6t4",
+          "title": "Implement the four files. Export runtime pieces from `src/index.ts`.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p6t5",
+          "title": "Run → PASS.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p6t6",
+          "title": "`git commit -m \"feat: contract codegen and contract runtime\"`",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        }
+      ]
+    },
+    {
+      "id": "p7",
+      "title": "Entity codegen and entity runtime",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "p7t1",
+          "title": "Failing schema tests:",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p7t2",
+          "title": "Failing entity tests (hand-written `Pool`/`Token` subclasses mirroring emitted shape; real `EntityStore` on memory Mongo):",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p7t3",
+          "title": "Failing codegen test: `runCodegen` on `test/fixture/abis` + a schema into a temp dir with `runtimeImport` pointing at `src/index.ts`; `await import()` the generated `index.ts`; assert `Sample`, `Pool`, `Token` exist, `new Pool('x')` has `tokenId`, `getToken`, `setToken`; a schema with `{ A: { x: 'nope' } }` throws and leaves the out dir empty.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p7t4",
+          "title": "Run the three test files → FAIL.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p7t5",
+          "title": "Implement. Export runtime pieces from `src/index.ts`.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p7t6",
+          "title": "Run → PASS.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p7t7",
+          "title": "`git commit -m \"feat: entity codegen, field codecs and entity runtime\"`",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        }
+      ]
+    },
+    {
+      "id": "p8",
+      "title": "defineIndexer, defineTemplate, config loading",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "p8t1",
+          "title": "Failing runtime tests:",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p8t2",
+          "title": "Failing type test `define.types.test.ts` (vitest `expectTypeOf` + `@ts-expect-error`; run with `npx vitest run --typecheck`):",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p8t3",
+          "title": "Run → FAIL. Step 4: Implement; add `typecheck: { enabled: true, include: ['test/unit/*.types.test.ts'] }` to `vitest.config.ts`. Step 5: Run → PASS.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p8t4",
+          "title": "Loader test: a temp `indexer.config.ts` importing `defineIndexer` by relative path loads into a `NormalizedConfig`; a file without default export throws `ConfigError`. Implement `loadIndexerConfig`. Run → PASS.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p8t5",
+          "title": "`git commit -m \"feat: typed defineIndexer/defineTemplate and config loader\"`",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        }
+      ]
+    },
+    {
+      "id": "p9",
+      "title": "Registry",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "p9t1",
+          "title": "Failing tests:",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p9t2",
+          "title": "Run → FAIL. Step 3: Implement (one `Map<address, entry>`). Step 4: Run → PASS.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p9t3",
+          "title": "`git commit -m \"feat: indexer registry\"`",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        }
+      ]
+    },
+    {
+      "id": "p10",
+      "title": "Scanners (backfill, head, bloom)",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "p10t1",
+          "title": "Failing bloom tests: build a bloom from a known address + topic with a test helper using `ethers.keccak256`; `bloomMayContain` true for both, false for an unrelated address; `blockMayMatch(bloom, [addr], [otherTopic])` false; all-zero bloom → `bloomMayContain` false.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p10t2",
+          "title": "Failing scanner tests (fake pool object implementing the consumed methods over an in-memory chain of blocks/logs):",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p10t3",
+          "title": "Run `npx vitest run test/unit/bloom.test.ts test/unit/scanners.test.ts` → FAIL. Step 4: Implement. Step 5: Run → PASS.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p10t4",
+          "title": "`git commit -m \"feat: backfill and head scanners with bloom skip\"`",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        }
+      ]
+    },
+    {
+      "id": "p11",
+      "title": "Indexer loop",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "p11t1",
+          "title": "Failing tests (memory Mongo, fake scanners/pool, config with `Factory.Created` index callback creating `PoolT`, `PoolT.Swap`):",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p11t2",
+          "title": "Run `npx vitest run test/unit/indexer.test.ts` → FAIL. Step 3: Implement. Step 4: Run → PASS.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p11t3",
+          "title": "`git commit -m \"feat: indexer loop with index callbacks and templates\"`",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        }
+      ]
+    },
+    {
+      "id": "p12",
+      "title": "Processor loop",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "p12t1",
+          "title": "Failing tests (memory Mongo; events inserted directly; callbacks write entities via hand-written `Counter` entity):",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p12t2",
+          "title": "Run → FAIL. Step 3: Implement. Step 4: Run → PASS.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p12t3",
+          "title": "`git commit -m \"feat: processor loop with revision replay\"`",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        }
+      ]
+    },
+    {
+      "id": "p13",
+      "title": "Status server",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "p13t1",
+          "title": "Failing tests (port 0, global `fetch`): fresh loop → 200 `ok`; `lastLoopAt` 61 s old → 503; `/status` returns the object from `status()` verbatim; unknown path → 404.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p13t2",
+          "title": "Run → FAIL. Step 3: Implement. Step 4: Run → PASS.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p13t3",
+          "title": "`git commit -m \"feat: health and status endpoint\"`",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        }
+      ]
+    },
+    {
+      "id": "p14",
+      "title": "CLI",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "p14t1",
+          "title": "Failing tests:",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p14t2",
+          "title": "Run → FAIL. Step 3: Implement. Step 4: Run → PASS; `npm run build` succeeds and `node dist/cli/index.js --help` lists `codegen`, `index`, `process`, `set-revision`, `reset`.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p14t3",
+          "title": "`git commit -m \"feat: CLI commands and README\"`",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        }
+      ]
+    },
+    {
+      "id": "p15",
+      "title": "End-to-end integration test",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "p15t1",
+          "title": "Write the test:",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p15t2",
+          "title": "Run `npm run test:integration` → FAIL on the first assertion that exposes a real defect, or PASS. Fix defects in the owning module with a unit test added there first.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p15t3",
+          "title": "Run `npm test` (all unit + integration) → PASS; `npx tsc --noEmit` and `npm run build` clean.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p15t4",
+          "title": "`git commit -m \"test: end-to-end integration against a hardhat node\"`",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        }
+      ]
+    }
+  ]
+}
