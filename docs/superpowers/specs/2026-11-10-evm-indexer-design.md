@@ -79,7 +79,10 @@ never import each other and share state only through MongoDB.
     "rpc": ["https://rpc-a", "https://rpc-b"],
     "confirmations": 0,
     "retryDelays": [100, 500, 2500],
-    "logRange": 2000,
+    "logRange": { "start": 500, "min": 1, "max": 2000 },
+    "blockBatch": { "start": 10, "min": 1, "max": 100 },
+    "headThreshold": 64,
+    "useBloom": true,
     "pollInterval": 1000
   }
 }
@@ -91,7 +94,10 @@ never import each other and share state only through MongoDB.
 | `rpc` | yes, ≥ 1 | | RPC URLs in order of preference |
 | `confirmations` | no | `0` | Indexer goes up to `head − confirmations` |
 | `retryDelays` | no | `[100, 500, 2500]` | Backoff steps in ms before switching RPC |
-| `logRange` | no | `2000` | Max blocks per `eth_getLogs` call |
+| `logRange` | no | `{ start: 500, min: 1, max: 2000 }` | Bounds for the adaptive `eth_getLogs` block range (backfill) |
+| `blockBatch` | no | `{ start: 10, min: 1, max: 100 }` | Bounds for the adaptive number of blocks per batch request (head mode) |
+| `headThreshold` | no | `64` | At most this many blocks behind the target → head mode, otherwise backfill |
+| `useBloom` | no | `true` | Head mode skips blocks whose `logsBloom` cannot match. Set `false` on chains with unreliable blooms |
 | `pollInterval` | no | `1000` | Loop pause in ms when caught up |
 
 ### 3.3 `addresses.json`
@@ -201,8 +207,27 @@ index callback created it.
   next RPC and starts the steps again. Other errors (reverts, invalid params) are thrown at once.
 - When every RPC has failed, the pool throws `AllRpcFailedError`; the calling loop logs it,
   sleeps `pollInterval` and retries the same work. No block is ever skipped.
-- If an RPC rejects an `eth_getLogs` range as too large, the indexer halves the range for
-  that call and grows it back towards `logRange` after successes.
+
+### 5.1 Adaptive sizing
+
+The pool keeps two learned sizes **per RPC**, in memory: the `eth_getLogs` block range
+(bounded by `logRange`) and the blocks per batch request (bounded by `blockBatch`).
+Each starts at `start` and then follows the same rule:
+
+- **Grow** by 25 % after a call that succeeded, answered within 2 s and returned fewer
+  than 2000 matching logs.
+- **Halve** on a timeout, a 429, or a "range / batch / response too large" error, and
+  when a call returned more than 10 000 logs. The failed work is retried with the
+  smaller size; a halving does not count as a retry step.
+- **Hold** otherwise.
+
+Rate limiting: after a 429 the pool waits per `retryDelays` and adds a minimum gap
+between requests to that RPC (starting at 100 ms, doubling on each further 429, halving
+after 20 successful calls).
+
+Switching RPC keeps each RPC's own learned sizes, so a slow fallback RPC does not
+inherit the fast one's range. At `min` size with retries exhausted the pool moves to
+the next RPC; with all RPCs failed it throws `AllRpcFailedError` as above.
 
 ## 6. Indexer
 
@@ -218,24 +243,52 @@ lowest `block` in the registry. A registry entry only matches logs with
 
 ### 6.2 Loop
 
-For each range `[from, to]` with `to = min(from + logRange − 1, head − confirmations)`:
+The scan is a hybrid, like graph-node. With `target = head − confirmations`, each
+iteration picks a mode from the distance `target − indexedBlock`:
+
+- more than `headThreshold` → **backfill** (`eth_getLogs`, fast over long histories),
+- otherwise → **head mode** (walk blocks and read their receipts).
+
+Both modes produce the same ordered list of matching logs with their blocks and feed the
+same steps 4–6, so the stored data does not depend on the mode.
+
+**Backfill** — range `[from, to]`, `to = min(from + range − 1, target)`, `range` from 5.1:
 
 1. `eth_getLogs` for the registry addresses and topic0 set. If the registry holds more
    than 100 addresses, filter by topics only and match addresses in memory.
 2. Drop logs that no registry entry matches (address, topic0, `block`).
-3. For each block that has matches, fetch the block with transactions once.
+3. For each block that has matches, fetch the block with transactions once
+   (as batch requests, sized by `blockBatch`).
+
+**Head mode** — the next `n` blocks up to `target`, `n` from 5.1:
+
+1. Fetch the `n` blocks with transactions as one JSON-RPC batch request.
+2. If `useBloom` is on, test each block's `logsBloom` against the registry's addresses
+   and topic0 values and skip blocks that cannot match.
+3. For the remaining blocks call `eth_getBlockReceipts` and collect the logs that a
+   registry entry matches. If the RPC does not support that method, fall back to
+   `eth_getLogs` for that single block and remember the fallback for that RPC.
+
+**Common steps**
+
 4. Walk the logs in `blockNumber, txIndex, logIndex` order. For each log:
    - decode it with the contract class,
    - set the context (section 7.1),
    - run the `index` callback if one is configured,
    - buffer the event and its transaction.
-5. If index callbacks created templates, fetch the logs of each new address from the
-   creating event's block to `to`, keep only logs after the creating event, merge them
-   into the ordered list and continue the walk. Repeat until no new template appears.
+5. If index callbacks created templates, add the new address's logs that come after the
+   creating event, up to the end of the current range, merge them into the ordered list
+   and continue the walk. Repeat until no new template appears.
+   - Backfill: fetch them with `eth_getLogs` from the creating event's block to `to`.
+   - Head mode: re-filter the receipts already in memory, and run steps 2–3 again for
+     later blocks of the batch that the bloom check had skipped.
 6. Upsert the buffered transactions and events (idempotent by their unique keys; an
-   existing event keeps its `processRevisionId`), then set `indexedBlock = to` and the heartbeat.
+   existing event keeps its `processRevisionId`), then set `indexedBlock` to the end of
+   the range and write the heartbeat.
 
 A crash before step 6 re-runs the range; index callbacks and upserts are idempotent.
+Receipt-only fields (`gasUsed`, `status`) are not stored, because backfill never fetches
+receipts.
 
 ### 6.3 Index callbacks and templates
 
@@ -246,7 +299,7 @@ saving an entity inside an index callback throws. Its only side effect is
 
 1. upserts `sys_templates` with `block` = the current event's block,
 2. adds the address to the in-memory registry,
-3. marks the address for the same-range fetch in step 5.
+3. marks the address for the same-range catch-up in step 5.
 
 Creating an address that already exists for that template is a no-op.
 `Template.create` called outside an index callback (e.g. in a process callback) throws.
@@ -442,6 +495,9 @@ Unit (vitest, no network):
 - schema validation, each field type's conversion, `Decimal128` overflow, `Timestamp`,
 - `defineIndexer` typing (type-level tests),
 - RPC pool retry, backoff and failover against a fake provider,
+- adaptive sizing: grow, halve, bounds, per-RPC state, rate-limit gap,
+- mode selection by `headThreshold`, bloom matching, `eth_getBlockReceipts` fallback,
+- backfill and head mode yield identical events for the same blocks,
 - registry `block` filtering and start-block selection.
 
 Integration (local hardhat node + a throwaway Mongo database, dropped afterwards):
