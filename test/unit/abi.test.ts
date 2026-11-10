@@ -6,8 +6,8 @@ import abi from '../fixture/abis/Sample.json';
 import { analyzeAbi } from '../../src/codegen/abi';
 import { emitContract } from '../../src/codegen/contracts';
 
-const TMP_ROOT = join(__dirname, '..', '.tmp');
-afterAll(() => rmSync(TMP_ROOT, { recursive: true, force: true }));
+const TMP_DIR = join(__dirname, '..', '.tmp', `abi-${process.pid}`);
+afterAll(() => rmSync(TMP_DIR, { recursive: true, force: true }));
 
 describe('analyzeAbi', () => {
   const a = analyzeAbi('Sample', abi);
@@ -57,7 +57,7 @@ describe('emitContract', () => {
   });
 
   it('emits valid, importable TypeScript', async () => {
-    const dir = join(TMP_ROOT, 'abi');
+    const dir = TMP_DIR;
     mkdirSync(dir, { recursive: true });
     const file = join(dir, 'Sample.ts');
     writeFileSync(file, emitContract('Sample', abi, '../../../src/index'));

@@ -6,4 +6,5 @@ export * from './runtime/events';
 export * from './runtime/contract';
 export * from './runtime/fields';
 export * from './runtime/entity';
+export * from './runtime/define';
 export { default as Decimal } from 'decimal.js';
