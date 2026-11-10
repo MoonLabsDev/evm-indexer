@@ -11,9 +11,14 @@ export class RegistryError extends Error {
   }
 }
 
+/** Position of a log inside its block. */
+export interface LogPosition { txIndex: number; logIndex: number }
+
 interface Entry {
   source: NormalizedSource;
   block: number;
+  /** Dynamic entries: the creating event; logs of `block` at or before it do not match. */
+  after?: LogPosition;
   /** topic0 (lowercase) → event, for the configured events only. */
   events: Map<string, { eventName: string; def: EventDef }>;
 }
@@ -41,19 +46,33 @@ export class Registry {
     }
   }
 
-  /** Registers a dynamic address; an already registered address keeps its block. */
-  add(sourceName: string, address: string, block: number): 'added' | 'exists' | 'conflict' {
+  /**
+   * Registers a dynamic address; an already registered address keeps its block and position.
+   * With `after`, logs of `block` at or before that position do not match.
+   */
+  add(sourceName: string, address: string, block: number, after?: LogPosition): 'added' | 'exists' | 'conflict' {
     const source = this.source(sourceName);
     const key = address.toLowerCase();
     const existing = this.entries.get(key);
     if (existing) return existing.source.name === source.name ? 'exists' : 'conflict';
-    this.entries.set(key, { source, block, events: this.eventsOf(source) });
+    const entry: Entry = { source, block, events: this.eventsOf(source) };
+    if (after) entry.after = { txIndex: after.txIndex, logIndex: after.logIndex };
+    this.entries.set(key, entry);
     return 'added';
+  }
+
+  /** Forgets an address (used to undo an `add` whose write failed). */
+  remove(address: string): void {
+    this.entries.delete(address.toLowerCase());
   }
 
   match(log: RawLog): Match | null {
     const entry = this.entries.get(log.address.toLowerCase());
     if (!entry || log.blockNumber < entry.block || log.topics.length === 0) return null;
+    if (entry.after && log.blockNumber === entry.block) {
+      const d = log.transactionIndex - entry.after.txIndex || log.logIndex - entry.after.logIndex;
+      if (d <= 0) return null;
+    }
     const hit = entry.events.get(log.topics[0].toLowerCase());
     return hit ? { source: entry.source, eventName: hit.eventName, def: hit.def } : null;
   }

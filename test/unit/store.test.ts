@@ -118,9 +118,9 @@ describe('SystemStore', () => {
   });
 
   it('adds templates once', async () => {
-    const t = { chainId: 1, template: 'Pool', address: '0xp', block: 5 };
+    const t = { chainId: 1, template: 'Pool', address: '0xp', block: 5, txIndex: 2, logIndex: 7 };
     expect(await sys.addTemplate(t)).toBe(true);
-    expect(await sys.addTemplate(t)).toBe(false);
+    expect(await sys.addTemplate({ ...t, block: 9, txIndex: 0, logIndex: 0 })).toBe(false); // keeps the first position
     expect(await sys.addTemplate({ ...t, chainId: 2 })).toBe(true);
     expect(await sys.listTemplates(1)).toEqual([t]);
   });
@@ -141,7 +141,7 @@ describe('SystemStore', () => {
     await e2.save('Pool', 'a', { x: 2 });
     await sys.upsertEvents([ev(10, 0, 0), ev(10, 0, 0, 2)]);
     await sys.upsertTransactions([txDoc(1)]);
-    await sys.addTemplate({ chainId: 1, template: 'Pool', address: '0xp', block: 5 });
+    await sys.addTemplate({ chainId: 1, template: 'Pool', address: '0xp', block: 5, txIndex: 0, logIndex: 0 });
     await sys.setIndexed(1, 99);
     await sys.setRevision(1, 2);
     await sys.setEntityRevision(1, 2);

@@ -34,7 +34,11 @@ export interface ChainState {
   currentRevisionId: number; entityRevisionId: number;
   indexerHeartbeat: Date | null; processorHeartbeat: Date | null;
 }
-export interface TemplateDoc { chainId: number; template: string; address: string; block: number }
+export interface TemplateDoc {
+  chainId: number; template: string; address: string; block: number;
+  /** position of the creating event inside `block`; only later logs of that block belong to the template */
+  txIndex: number; logIndex: number;
+}
 export interface IndexedEvent<A = Record<string, unknown>> {
   args: A; address: string; blockNumber: number; txIndex: number; logIndex: number; txHash: string;
 }

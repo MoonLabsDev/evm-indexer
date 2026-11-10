@@ -146,7 +146,7 @@ export class SystemStore {
   async addTemplate(doc: TemplateDoc): Promise<boolean> {
     const res = await this.templates.updateOne(
       { chainId: doc.chainId, template: doc.template, address: doc.address },
-      { $setOnInsert: { block: doc.block } },
+      { $setOnInsert: { block: doc.block, txIndex: doc.txIndex, logIndex: doc.logIndex } },
       { upsert: true },
     );
     return res.upsertedCount === 1;

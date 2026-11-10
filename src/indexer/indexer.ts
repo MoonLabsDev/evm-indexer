@@ -34,12 +34,6 @@ const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(r
 
 const logKey = (l: RawLog) => `${l.blockNumber}/${l.transactionIndex}/${l.logIndex}`;
 
-/** True when `l` comes strictly after `ref` in block, tx, log order. */
-function isAfter(l: RawLog, ref: RawLog): boolean {
-  const d = l.blockNumber - ref.blockNumber || l.transactionIndex - ref.transactionIndex || l.logIndex - ref.logIndex;
-  return d > 0;
-}
-
 /** Scans one chain, runs index callbacks (which may add template addresses) and stores events + transactions. */
 export class Indexer {
   private readonly chain: ChainConfig;
@@ -53,6 +47,8 @@ export class Indexer {
 
   /** Addresses that index callbacks of the current log created (sink result 'added'). */
   private created: string[] = [];
+  /** sys_templates writes started by index callbacks of the current log. */
+  private templateWrites: Promise<void>[] = [];
   private currentBlock = 0;
   private indexBlock = 0;
   private lastLoop = 0;
@@ -76,7 +72,8 @@ export class Indexer {
     await this.store.init();
     this.registry.addStatic(this.statics);
     for (const t of await this.store.listTemplates(chainId)) {
-      if (this.registry.add(t.template, t.address, t.block) === 'conflict') {
+      const after = { txIndex: t.txIndex, logIndex: t.logIndex };
+      if (this.registry.add(t.template, t.address, t.block, after) === 'conflict') {
         log.error(`chain ${chainId}: template ${t.template} at ${t.address} conflicts with another source, skipped`);
       }
     }
@@ -109,13 +106,11 @@ export class Indexer {
 
     let queue = batch.logs;
     let i = 0;
-    const walked = new Set<string>();
     const events: EventDoc[] = [];
     const txs = new Map<string, TxDoc>();
 
     while (i < queue.length) {
       const raw = queue[i++];
-      walked.add(logKey(raw));
       const m = this.registry.match(raw);
       if (!m) continue;
 
@@ -132,6 +127,7 @@ export class Indexer {
       };
 
       this.created = [];
+      this.templateWrites = [];
       setContext({
         mode: 'index',
         chain: { id: chainId, name },
@@ -141,13 +137,19 @@ export class Indexer {
           to: rawTx.to, value: rawTx.value, nonce: rawTx.nonce, gasPrice: rawTx.gasPrice, input: rawTx.input,
         },
       });
+      let writes: PromiseSettledResult<void>[] = [];
       try {
         await m.source.events[m.eventName]?.index?.(event);
       } finally {
         clearContext();
+        // Also covers Template.create calls the callback did not await.
+        writes = await Promise.allSettled(this.templateWrites);
       }
+      const failedWrite = writes.find((w): w is PromiseRejectedResult => w.status === 'rejected');
+      if (failedWrite) throw failedWrite.reason;
       const created = this.created;
       this.created = [];
+      this.templateWrites = [];
 
       events.push({
         chainId, address, eventId: raw.topics[0].toLowerCase(), blockNumber: raw.blockNumber,
@@ -162,13 +164,14 @@ export class Indexer {
       });
 
       if (created.length > 0) {
-        // Catch up the new addresses' logs after this one, without duplicates.
+        // Catch up the new addresses' logs, without duplicates of the remaining queue. Logs at or
+        // before this one need no filter here: the walk's registry.match rejects them, because
+        // the new entries start after this log's position.
         const merged = new Map<string, RawLog>();
         for (const l of queue.slice(i)) merged.set(logKey(l), l);
         for (const addr of created) {
           for (const l of await batch.logsFor(addr, raw.blockNumber)) {
-            const k = logKey(l);
-            if (isAfter(l, raw) && !walked.has(k) && !merged.has(k)) merged.set(k, l);
+            if (!merged.has(logKey(l))) merged.set(logKey(l), l);
           }
         }
         queue = sortLogs([...merged.values()]);
@@ -218,19 +221,34 @@ export class Indexer {
     return iface;
   }
 
-  /** Template sink: called by `Template.create` inside an index callback. */
-  private async onTemplate(template: string, address: string): Promise<void> {
+  /**
+   * Template sink: called by `Template.create` inside an index callback. The registry entry and the
+   * catch-up mark are set synchronously, so a callback that does not await `create` loses nothing.
+   * The sys_templates write is awaited by `tick()` after the callback; if it fails, the registry
+   * entry is rolled back (so the retry adds and writes it again) and the tick aborts.
+   */
+  private onTemplate(template: string, address: string): Promise<void> {
     const ctx = currentContext();
-    if (!ctx) throw new Error('Template.create is only allowed in index callbacks');
+    if (!ctx) return Promise.reject(new Error('Template.create is only allowed in index callbacks'));
     const { chainId } = this.chain;
-    const blockNumber = ctx.block.number;
-    const res = this.registry.add(template, address, blockNumber);
-    if (res === 'added') {
-      await this.store.addTemplate({ chainId, template, address, block: blockNumber });
-      this.created.push(address);
-    } else if (res === 'conflict') {
+    const block = ctx.block.number;
+    const after = { txIndex: ctx.tx.transactionIndex, logIndex: ctx.tx.logIndex };
+    const res = this.registry.add(template, address, block, after);
+    if (res === 'conflict') {
       log.error(`chain ${chainId}: ${template}.create(${address}) ignored, the address belongs to another source`);
     }
+    if (res !== 'added') return Promise.resolve();
+    this.created.push(address);
+    const write = this.store.addTemplate({ chainId, template, address, block, ...after }).then(
+      () => undefined,
+      (err: unknown) => {
+        this.registry.remove(address);
+        throw err;
+      },
+    );
+    this.templateWrites.push(write);
+    // A failure surfaces from tick(); the callback's own promise never rejects for it.
+    return write.catch(() => undefined);
   }
 
   /** While far behind head, prints progress with an ETA every 10 s. */

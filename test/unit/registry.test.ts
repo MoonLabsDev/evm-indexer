@@ -35,9 +35,9 @@ const sources: Record<string, NormalizedSource> = {
   },
 };
 
-const log = (address: string, topic0: string | undefined, blockNumber: number): RawLog => ({
+const log = (address: string, topic0: string | undefined, blockNumber: number, transactionIndex = 0, logIndex = 0): RawLog => ({
   address, topics: topic0 === undefined ? [] : [topic0], data: '0x', blockNumber,
-  transactionIndex: 0, logIndex: 0, transactionHash: '0x00',
+  transactionIndex, logIndex, transactionHash: '0x00',
 });
 
 function make(): Registry {
@@ -77,6 +77,29 @@ describe('Registry', () => {
     expect(r.add('PoolT', A, 150)).toBe('conflict');
     expect(r.add('Factory', B, 150)).toBe('conflict');
     expect(r.size()).toBe(2);
+  });
+
+  it('a dynamic address with a creating position only matches logs after it in the creating block', () => {
+    const r = make();
+    expect(r.add('PoolT', B, 150, { txIndex: 2, logIndex: 3 })).toBe('added');
+    expect(r.match(log(B, SWAP_TOPIC, 150, 1, 9))).toBeNull(); // earlier tx
+    expect(r.match(log(B, SWAP_TOPIC, 150, 2, 2))).toBeNull(); // same tx, earlier log
+    expect(r.match(log(B, SWAP_TOPIC, 150, 2, 3))).toBeNull(); // the creating position itself
+    expect(r.match(log(B, SWAP_TOPIC, 150, 2, 4))).not.toBeNull();
+    expect(r.match(log(B, SWAP_TOPIC, 150, 3, 0))).not.toBeNull();
+    expect(r.match(log(B, SWAP_TOPIC, 151, 0, 0))).not.toBeNull(); // later blocks: any position
+    expect(r.match(log(B, SWAP_TOPIC, 149, 9, 9))).toBeNull();
+    // a static entry has no position: every log of its start block matches
+    expect(r.match(log(A, CREATED_TOPIC, 100, 0, 0))).not.toBeNull();
+  });
+
+  it('removes an address', () => {
+    const r = make();
+    r.add('PoolT', B, 150);
+    r.remove(B.toUpperCase().replace('0X', '0x'));
+    expect(r.match(log(B, SWAP_TOPIC, 150))).toBeNull();
+    expect(r.size()).toBe(1);
+    expect(r.add('PoolT', B, 150)).toBe('added');
   });
 
   it('throws RegistryError for unknown sources and cross-source static addresses', () => {

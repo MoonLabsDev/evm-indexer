@@ -60,7 +60,9 @@ class Thing extends BaseEntity {
 const hooks: {
   created: ((e: FactoryEvents['Created']) => Promise<void>) | null;
   swaps: string[];
-} = { created: null, swaps: [] };
+  /** false: the Created callback calls PoolT.create without awaiting it */
+  awaitCreate: boolean;
+} = { created: null, swaps: [], awaitCreate: true };
 const templates: { pool: Template<PoolEvents> | null } = { pool: null };
 
 const PoolT = defineTemplate<PoolEvents>({
@@ -80,7 +82,8 @@ const config = defineIndexer({
         Created: {
           index: async (e) => {
             if (hooks.created) await hooks.created(e);
-            await PoolT.create(e.args.pool);
+            if (hooks.awaitCreate) await PoolT.create(e.args.pool);
+            else void PoolT.create(e.args.pool);
           },
         },
       },
@@ -140,22 +143,29 @@ class FakeChain {
 }
 
 /**
- * Returns every log of the range, matched or not (the indexer re-matches each log against its
- * registry), which also exercises the de-duplication of catch-up logs against the queue.
+ * In-memory scanner. With `known` it behaves like the real scanners: only logs of addresses known
+ * at that moment (statics + sys_templates rows), so template logs created in the range arrive only
+ * through `logsFor`. Without `known` it returns every log of the range (the indexer re-matches each
+ * log), which exercises the de-duplication of catch-up logs against the queue.
  */
 class FakeScanner implements Scanner {
   calls: Array<[number, number]> = [];
   logsForCalls: Array<[string, number]> = [];
-  constructor(private readonly fake: FakeChain, public range = 1000) {}
+  constructor(
+    private readonly fake: FakeChain,
+    public range = 1000,
+    private readonly known: (() => Promise<Set<string>>) | null = null,
+  ) {}
 
   async scan(from: number, target: number): Promise<ScanBatch> {
     this.calls.push([from, target]);
     const to = Math.min(from + this.range - 1, target);
     const inRange = (l: RawLog, lo: number) => l.blockNumber >= lo && l.blockNumber <= to;
+    const atScan = this.known ? await this.known() : null;
     return {
       from,
       to,
-      logs: sortLogs(this.fake.logs.filter((l) => inRange(l, from))),
+      logs: sortLogs(this.fake.logs.filter((l) => inRange(l, from) && (atScan === null || atScan.has(l.address)))),
       getBlock: async (n) => {
         const b = this.fake.blocks.get(n);
         if (!b) throw new Error(`no block ${n}`);
@@ -163,6 +173,8 @@ class FakeScanner implements Scanner {
       },
       logsFor: async (address, fromBlock) => {
         this.logsForCalls.push([address, fromBlock]);
+        const now = this.known ? await this.known() : null;
+        if (now !== null && !now.has(address)) return [];
         return sortLogs(this.fake.logs.filter((l) => l.address === address && inRange(l, Math.max(from, fromBlock))));
       },
     };
@@ -191,6 +203,7 @@ beforeEach(async () => {
   await db.dropDatabase();
   hooks.created = null;
   hooks.swaps = [];
+  hooks.awaitCreate = true;
   vi.spyOn(console, 'log').mockImplementation(() => {});
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
@@ -201,6 +214,8 @@ interface Setup {
   statics?: StaticEntry[];
   chainOver?: Partial<ChainConfig>;
   range?: number;
+  /** scanner returns every log of the range instead of only known addresses */
+  unfiltered?: boolean;
   sleep?: (ms: number) => Promise<void>;
 }
 
@@ -214,15 +229,20 @@ function setup(fake: FakeChain, o: Setup = {}) {
     getBlocks: notUsed,
     getBlockLogs: notUsed,
   };
-  const backfill = new FakeScanner(fake, o.range ?? 1000);
-  const head = new FakeScanner(fake, o.range ?? 1000);
   const store = new SystemStore(db);
+  const statics = o.statics ?? [{ source: 'Factory', address: F, block: 5 }];
+  const known = o.unfiltered ? null : async () => new Set([
+    ...statics.map((e) => e.address),
+    ...(await store.listTemplates(CHAIN_ID)).map((t) => t.address),
+  ]);
+  const backfill = new FakeScanner(fake, o.range ?? 1000, known);
+  const head = new FakeScanner(fake, o.range ?? 1000, known);
   const deps: IndexerDeps = {
     chain: chainConfig(o.chainOver),
     pool: poolObj,
     store,
     config,
-    statics: o.statics ?? [{ source: 'Factory', address: F, block: 5 }],
+    statics,
     scanners: { backfill, head },
     ...(o.sleep ? { sleep: o.sleep } : {}),
   };
@@ -327,7 +347,87 @@ describe('Indexer', () => {
     expect(swaps.map((e) => e.data)).toEqual([{ amount: { __bigint: '2' } }, { amount: { __bigint: '3' } }, { amount: { __bigint: '4' } }]);
     expect(head.logsForCalls).toEqual([[P, 10]]);
     expect(await db.collection('sys_templates').find({}, { projection: { _id: 0 } }).toArray())
-      .toEqual([{ chainId: CHAIN_ID, template: 'PoolT', address: P, block: 10 }]);
+      .toEqual([{ chainId: CHAIN_ID, template: 'PoolT', address: P, block: 10, txIndex: 0, logIndex: 0 }]);
+  });
+
+  it('de-duplicates catch-up logs against the remaining queue (unfiltered scanner)', async () => {
+    const fake = new FakeChain();
+    fake.created(P, 10, 0, 0);
+    fake.swap(P, 2n, 10, 0, 1);
+    fake.swap(P, 3n, 12, 0, 0);
+    const { indexer, head } = setup(fake, { unfiltered: true });
+    await indexer.init();
+    await indexer.tick();
+    expect(head.logsForCalls).toEqual([[P, 10]]);
+    expect(hooks.swaps).toEqual([`${P}:10/0/1`, `${P}:12/0/0`]); // each once
+  });
+
+  it('stores the same events for a template uninterrupted, after an aborted tick, and after a restart', async () => {
+    const build = () => {
+      const fake = new FakeChain();
+      fake.swap(P, 1n, 10, 0, 0); // same block, before the creating log
+      fake.created(P, 10, 1, 0);
+      fake.swap(P, 2n, 10, 2, 0); // after it
+      return fake;
+    };
+    const stored = async () => (await eventsSorted()).map((e) => `${e.event}@${e.address}@${key(e)}`);
+    const expected = [`Created@${F}@10/1/0`, `Swap@${P}@10/2/0`];
+
+    // (a) uninterrupted
+    const a = setup(build());
+    await a.indexer.init();
+    await a.indexer.tick();
+    expect(await stored()).toEqual(expected);
+
+    // (b) first tick aborted after the template row was written, then retried
+    await db.dropDatabase();
+    const b = setup(build());
+    await b.indexer.init();
+    vi.spyOn(b.store, 'upsertEvents').mockRejectedValueOnce(new Error('write failed'));
+    await expect(b.indexer.tick()).rejects.toThrow('write failed');
+    expect(await db.collection('sys_templates').countDocuments()).toBe(1);
+    await b.indexer.tick();
+    expect(await stored()).toEqual(expected);
+
+    // (c) aborted tick, then a fresh Indexer on the same DB
+    await db.dropDatabase();
+    const c1 = setup(build());
+    await c1.indexer.init();
+    vi.spyOn(c1.store, 'upsertEvents').mockRejectedValueOnce(new Error('write failed'));
+    await expect(c1.indexer.tick()).rejects.toThrow('write failed');
+    const c2 = setup(build());
+    await c2.indexer.init();
+    await c2.indexer.tick();
+    expect(await stored()).toEqual(expected);
+  });
+
+  it('a failed template write is retried: the next tick writes the row and catches up', async () => {
+    const fake = new FakeChain();
+    fake.created(P, 10, 0, 0);
+    fake.swap(P, 2n, 11, 0, 0);
+    const { indexer, store } = setup(fake);
+    await indexer.init();
+    vi.spyOn(store, 'addTemplate').mockRejectedValueOnce(new Error('template write failed'));
+    await expect(indexer.tick()).rejects.toThrow('template write failed');
+    expect(await db.collection('sys_templates').countDocuments()).toBe(0);
+    expect((await store.getChain(CHAIN_ID)).indexedBlock).toBe(0);
+
+    expect(await indexer.tick()).toBe('worked');
+    expect(await db.collection('sys_templates').find({}, { projection: { _id: 0 } }).toArray())
+      .toEqual([{ chainId: CHAIN_ID, template: 'PoolT', address: P, block: 10, txIndex: 0, logIndex: 0 }]);
+    expect((await eventsSorted()).map((e) => `${e.event}@${key(e)}`)).toEqual(['Created@10/0/0', 'Swap@11/0/0']);
+  });
+
+  it('catches up a template whose create is not awaited by the callback', async () => {
+    hooks.awaitCreate = false;
+    const fake = new FakeChain();
+    fake.created(P, 10, 0, 0);
+    fake.swap(P, 2n, 10, 0, 1);
+    const { indexer } = setup(fake);
+    await indexer.init();
+    await indexer.tick();
+    expect(hooks.swaps).toEqual([`${P}:10/0/1`]);
+    expect(await db.collection('sys_templates').countDocuments()).toBe(1);
   });
 
   it('catches up only logs strictly after the creating log', async () => {
@@ -354,8 +454,8 @@ describe('Indexer', () => {
     expect(hooks.swaps).toEqual([`${Q}:11/0/1`, `${Q}:13/0/0`]);
     const templatesRows = await db.collection('sys_templates').find({}, { projection: { _id: 0 } }).sort({ block: 1 }).toArray();
     expect(templatesRows).toEqual([
-      { chainId: CHAIN_ID, template: 'PoolT', address: P, block: 10 },
-      { chainId: CHAIN_ID, template: 'PoolT', address: Q, block: 11 },
+      { chainId: CHAIN_ID, template: 'PoolT', address: P, block: 10, txIndex: 0, logIndex: 0 },
+      { chainId: CHAIN_ID, template: 'PoolT', address: Q, block: 11, txIndex: 0, logIndex: 0 },
     ]);
     expect((await eventsSorted()).map((e) => `${e.event}@${key(e)}`))
       .toEqual(['Created@10/0/0', 'Spawn@11/0/0', 'Swap@11/0/1', 'Swap@13/0/0']);
