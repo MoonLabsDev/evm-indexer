@@ -3,15 +3,18 @@ import { join } from 'path';
 import { ROOT } from './fixture';
 
 /*
- * Runtime singleton in tests: loadIndexerConfig loads indexer.config.ts (and through it the generated
- * code, the handlers and src/index) with tsx's require, which keeps its own module instances apart
- * from the ones vitest loads for a test file. A test that imported Indexer or Processor directly would
- * install the context, RPC handle, entity store and template sink in vitest's copy of src/runtime,
- * while the callbacks read tsx's copy. So every src module the e2e test uses comes through the same
- * tsx require as the config. (In a real project both sides resolve to one dist/ copy.)
+ * Runtime singleton under vitest: vitest runs test files and the src modules they import through its
+ * own module runner, with module instances apart from Node's require cache. loadIndexerConfig loads
+ * indexer.config.ts (and through it the generated code, the handlers and src/index) with Node's
+ * require plus the global tsx hook. A test that imported Indexer or Processor directly would install
+ * the context, RPC handle, entity store and template sink in vitest's copy of src/runtime while the
+ * callbacks read Node's copy. So every src module this e2e test uses comes through Node's require
+ * as well, which is exactly how the real CLI loads them (test/integration/cli.test.ts covers that path
+ * with the built package).
  */
-const tsx = createRequire(__filename)('tsx/cjs/api') as { require(id: string, fromFile: string): unknown };
-const load = <T>(rel: string): T => tsx.require(join(ROOT, rel), __filename) as T;
+const nodeRequire = createRequire(__filename);
+(nodeRequire('tsx/cjs/api') as { register(): unknown }).register();
+const load = <T>(rel: string): T => nodeRequire(join(ROOT, rel)) as T;
 
 export const { loadIndexerConfig } = load<typeof import('../../src/config/indexerConfig')>('src/config/indexerConfig.ts');
 export const { loadChain } = load<typeof import('../../src/config/chains')>('src/config/chains.ts');

@@ -9,3 +9,7 @@ test/fixture/cache/
 test/fixture/project/abis/
 test/fixture/project/generated/
 test/fixture/project/addresses.json
+test/fixture/cli-project/node_modules/
+test/fixture/cli-project/abis/
+test/fixture/cli-project/generated/
+test/fixture/cli-project/addresses.json
