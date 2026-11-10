@@ -92,7 +92,9 @@ export class Processor {
       state = { ...state, entityRevisionId: revision, processedBlock: 0 };
     }
 
-    const batch = await this.store.nextUnprocessed(chainId, revision, state.indexedBlock, this.batchSize);
+    const batch = await this.store.nextUnprocessed(
+      chainId, revision, { from: state.processedBlock, to: state.indexedBlock }, this.batchSize,
+    );
     if (batch.length === 0) {
       await this.store.setProcessed(chainId, state.indexedBlock);
       this.processBlock = state.indexedBlock;

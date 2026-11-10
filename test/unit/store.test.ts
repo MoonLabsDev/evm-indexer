@@ -67,14 +67,14 @@ describe('SystemStore', () => {
     await sys.upsertEvents([ev(10, 0, 0)]);
     await sys.stampEvent(ev(10, 0, 0), 0);
     await sys.upsertEvents([ev(10, 0, 0)]);
-    expect(await sys.nextUnprocessed(1, 0, 100, 10)).toHaveLength(0);
+    expect(await sys.nextUnprocessed(1, 0, { from: 0, to: 100 }, 10)).toHaveLength(0);
     expect(await db.collection('sys_events').countDocuments()).toBe(1);
   });
 
   it('upsert updates other fields of an existing event', async () => {
     await sys.upsertEvents([ev(10, 0, 0)]);
     await sys.upsertEvents([{ ...ev(10, 0, 0), txHash: '0xnew' }]);
-    const [d] = await sys.nextUnprocessed(1, 0, 100, 10);
+    const [d] = await sys.nextUnprocessed(1, 0, { from: 0, to: 100 }, 10);
     expect(d.txHash).toBe('0xnew');
   });
 
@@ -87,19 +87,25 @@ describe('SystemStore', () => {
 
   it('returns unprocessed events ordered and filtered', async () => {
     await sys.upsertEvents([ev(12, 0, 1), ev(10, 2, 0), ev(10, 0, 5), ev(11, 0, 0), ev(10, 0, 0, 2)]);
-    const r = await sys.nextUnprocessed(1, 0, 11, 10);
+    const r = await sys.nextUnprocessed(1, 0, { from: 0, to: 11 }, 10);
     expect(r.map(e => [e.blockNumber, e.txIndex, e.logIndex])).toEqual([[10, 0, 5], [10, 2, 0], [11, 0, 0]]);
     expect(r[0]).not.toHaveProperty('_id');
-    expect(await sys.nextUnprocessed(1, 0, 11, 2)).toHaveLength(2);
+    expect(await sys.nextUnprocessed(1, 0, { from: 0, to: 11 }, 2)).toHaveLength(2);
+  });
+
+  it('reads from an inclusive lower block bound, so earlier processed keys are not scanned', async () => {
+    await sys.upsertEvents([ev(9, 0, 0), ev(10, 0, 0), ev(10, 0, 1), ev(11, 0, 0)]);
+    const r = await sys.nextUnprocessed(1, 0, { from: 10, to: 100 }, 10);
+    expect(r.map(e => [e.blockNumber, e.logIndex])).toEqual([[10, 0], [10, 1], [11, 0]]);
   });
 
   it('a revision bump makes everything unprocessed again', async () => {
     await sys.upsertEvents([ev(12, 0, 1), ev(10, 2, 0), ev(10, 0, 5), ev(11, 0, 0)]);
-    for (const e of await sys.nextUnprocessed(1, 0, 100, 10)) await sys.stampEvent(e, 0);
-    expect(await sys.nextUnprocessed(1, 0, 100, 10)).toHaveLength(0);
+    for (const e of await sys.nextUnprocessed(1, 0, { from: 0, to: 100 }, 10)) await sys.stampEvent(e, 0);
+    expect(await sys.nextUnprocessed(1, 0, { from: 0, to: 100 }, 10)).toHaveLength(0);
     await sys.setRevision(1, 1);
     expect((await sys.getChain(1)).currentRevisionId).toBe(1);
-    expect(await sys.nextUnprocessed(1, 1, 100, 10)).toHaveLength(4);
+    expect(await sys.nextUnprocessed(1, 1, { from: 0, to: 100 }, 10)).toHaveLength(4);
   });
 
   it('setEntityRevision also resets processedBlock', async () => {
@@ -110,7 +116,7 @@ describe('SystemStore', () => {
 
   it('unstampRevision marks only the stamps of that revision and chain unprocessed', async () => {
     await sys.upsertEvents([ev(10, 0, 0), ev(11, 0, 0), ev(12, 0, 0)]);
-    const [a, b, c] = await sys.nextUnprocessed(1, 1, 100, 10);
+    const [a, b, c] = await sys.nextUnprocessed(1, 1, { from: 0, to: 100 }, 10);
     await sys.stampEvent(a, 1);
     await sys.stampEvent(b, 0);
     await sys.unstampRevision(1, 1);
@@ -170,8 +176,8 @@ describe('SystemStore', () => {
 
     expect(await e1.load('Pool', 'a')).toBeNull();
     expect(await e2.load('Pool', 'a')).toEqual({ x: 2 });
-    expect(await sys.nextUnprocessed(1, 0, 100, 10)).toHaveLength(0);
-    expect(await sys.nextUnprocessed(2, 0, 100, 10)).toHaveLength(1);
+    expect(await sys.nextUnprocessed(1, 0, { from: 0, to: 100 }, 10)).toHaveLength(0);
+    expect(await sys.nextUnprocessed(2, 0, { from: 0, to: 100 }, 10)).toHaveLength(1);
     expect(await sys.getTransaction(1, '0xh')).toBeNull();
     expect(await sys.listTemplates(1)).toEqual([]);
     expect(await sys.getChain(1)).toMatchObject({

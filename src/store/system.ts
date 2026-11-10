@@ -128,10 +128,17 @@ export class SystemStore {
     return doc as unknown as TxDoc | null;
   }
 
-  async nextUnprocessed(chainId: number, revisionId: number, maxBlock: number, limit: number): Promise<EventDoc[]> {
+  /**
+   * The next `limit` events in `blocks` (inclusive) not stamped with `revisionId`, in block/tx/log
+   * order. The lower bound lets the {chainId, blockNumber, txIndex, logIndex} index skip the
+   * processed keys; the caller passes processedBlock, which never passes an unprocessed event.
+   */
+  async nextUnprocessed(
+    chainId: number, revisionId: number, blocks: { from: number; to: number }, limit: number,
+  ): Promise<EventDoc[]> {
     const docs = await this.events
       .find(
-        { chainId, processRevisionId: { $ne: revisionId }, blockNumber: { $lte: maxBlock } },
+        { chainId, processRevisionId: { $ne: revisionId }, blockNumber: { $gte: blocks.from, $lte: blocks.to } },
         { projection: { _id: 0 } },
       )
       .sort({ blockNumber: 1, txIndex: 1, logIndex: 1 })

@@ -257,6 +257,38 @@ describe('Processor', () => {
     expect(await counter()).toBe(3);
   });
 
+  it('reads each batch from processedBlock on and never sets processedBlock past an unprocessed event', async () => {
+    // block 12 holds four events: batches of two end inside it, and its third event fails once
+    await insert([{ b: 10, t: 0, l: 0 }, { b: 12, t: 0, l: 0 }, { b: 12, t: 0, l: 1 }, { b: 12, t: 1, l: 0 }, { b: 12, t: 1, l: 1 }, { b: 13, t: 0, l: 0 }]);
+    await store.setIndexed(CHAIN_ID, 20);
+    let broken = true;
+    hooks.onTransfer = async (e) => {
+      if (broken && key(e) === '12/1/0') throw new Error('boom');
+      await bump();
+    };
+    const spy = vi.spyOn(store, 'nextUnprocessed');
+    const { processor } = setup({ batchSize: 2 });
+    await processor.init();
+
+    expect(await processor.tick()).toBe('worked'); // 10/0/0, 12/0/0
+    expect((await store.getChain(CHAIN_ID)).processedBlock).toBe(12);
+    await expect(processor.tick()).rejects.toThrow('boom'); // 12/0/1 ok, 12/1/0 fails
+    expect((await store.getChain(CHAIN_ID)).processedBlock).toBe(12);
+
+    broken = false;
+    while ((await processor.tick()) === 'worked') { /* drain */ }
+    expect(hooks.seen).toEqual(
+      ['10/0/0', '12/0/0', '12/0/1', '12/1/0', '12/1/0', '12/1/1', '13/0/0'],
+    );
+    expect(await counter()).toBe(6);
+    expect(await stamps()).toEqual([0, 0, 0, 0, 0, 0]);
+    expect(spy.mock.calls.map((c) => c[2])).toEqual([
+      { from: 0, to: 20 }, { from: 12, to: 20 }, { from: 12, to: 20 }, { from: 12, to: 20 }, { from: 13, to: 20 },
+    ]);
+    // the empty batch at the end still moves processedBlock to indexedBlock
+    expect((await store.getChain(CHAIN_ID)).processedBlock).toBe(20);
+  });
+
   it('a missing transaction fails the tick without stamping', async () => {
     await insert([{ b: 10, t: 0, l: 0 }]);
     await db.collection('sys_transactions').deleteMany({});
