@@ -33,7 +33,7 @@ function normalizeOne(spec: FieldSpec, v: unknown, field: string): unknown {
       if (typeof v !== 'string') fail(field, spec.type === 'ref' ? 'a string id (ref)' : 'a string', v);
       return v;
     case 'int':
-      if (typeof v !== 'number' || !Number.isInteger(v)) fail(field, 'an integer (int)', v);
+      if (typeof v !== 'number' || !Number.isSafeInteger(v)) fail(field, 'a safe integer (int)', v);
       return v;
     case 'float':
       if (typeof v !== 'number' || !Number.isFinite(v)) fail(field, 'a finite number (float)', v);

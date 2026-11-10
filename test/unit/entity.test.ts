@@ -76,6 +76,7 @@ describe('field codecs', () => {
     expect(() => normalize(f('string', { array: true }), 'x', 's')).toThrow(/array/);
     expect(normalize(f('int', { array: true }), [1, 2], 'n')).toEqual([1, 2]);
     expect(() => normalize(f('int', { array: true }), [1, 2.5], 'n')).toThrow(/int/);
+    expect(() => normalize(f('int'), 2 ** 60, 'n')).toThrow(/int/);
   });
 
   it('round-trips through the database representation', () => {

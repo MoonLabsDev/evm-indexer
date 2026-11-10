@@ -30,8 +30,9 @@ const runtimeFor = (outDir: string) => relative(join(outDir, 'entities'), SRC_IN
 describe('emitEntity', () => {
   it('emits the pinned shape', () => {
     const src = emitEntity('Pool', parseSchema(schema).Pool, 'evm-indexer');
-    expect(src).toContain("import { BaseEntity, FieldSpec, Timestamp } from 'evm-indexer';");
-    expect(src).toContain("import Decimal from 'decimal.js';");
+    expect(src).toContain("import { BaseEntity } from 'evm-indexer';");
+    expect(src).toContain("import type { FieldSpec, Timestamp } from 'evm-indexer';");
+    expect(src).toContain("import type Decimal from 'decimal.js';");
     expect(src).toContain("import { Token } from './Token';");
     expect(src).not.toContain("from './Pool'");
     expect(src).toContain('export class Pool extends BaseEntity');
@@ -51,7 +52,37 @@ describe('emitEntity', () => {
   });
 });
 
+describe('emitEntity imports', () => {
+  it('emits only the imports a file uses', () => {
+    const src = emitEntity('Plain', parseSchema({ Plain: { name: 'string' } }).Plain, 'evm-indexer');
+    expect(src).not.toContain('Decimal');
+    expect(src).not.toContain('Timestamp');
+    expect(src).toContain("import type { FieldSpec } from 'evm-indexer';");
+  });
+});
+
 describe('runCodegen', () => {
+  it('handles fields named like base class internals', async () => {
+    const p = setup('internals', { Odd: { values: 'string', meta: 'int', spec: 'string?', refCache: 'bigint' } }, { 'Sample.json': sampleAbi() });
+    runCodegen({ ...p, runtimeImport: runtimeFor(p.outDir) });
+    const mod = await import(join(p.outDir, 'index.ts'));
+    const { EntityStore } = await import('../../src/store/entities');
+    const { setEntityStore } = await import('../../src/runtime/entity');
+    const { startMongo } = await import('../helpers/mongo');
+    const mongo = await startMongo();
+    setEntityStore(new EntityStore(mongo.db, 1));
+    try {
+      const o = new mod.Odd('o1');
+      o.values = 'v'; o.meta = 3; o.refCache = 9n;
+      await o.save();
+      const q = await mod.Odd.load('o1');
+      expect([q.values, q.meta, q.spec, q.refCache]).toEqual(['v', 3, undefined, 9n]);
+    } finally {
+      setEntityStore(null);
+      await mongo.stop();
+    }
+  });
+
   it('generates importable contracts and entities', async () => {
     const p = setup('ok', schema, { 'Sample.json': sampleAbi(), 'Wrapped.json': { abi: sampleAbi() } });
     const { files, warnings } = runCodegen({ ...p, runtimeImport: runtimeFor(p.outDir) });

@@ -24,8 +24,10 @@ export function emitEntity(table: string, fields: Record<string, FieldSpec>, run
     .filter((r) => r !== table)
     .sort();
 
-  L.push(`import { BaseEntity, FieldSpec, Timestamp } from '${runtimeImport}';`);
-  L.push(`import Decimal from 'decimal.js';`);
+  const types = new Set(Object.values(fields).map((f) => f.type));
+  L.push(`import { BaseEntity } from '${runtimeImport}';`);
+  L.push(`import type { ${types.has('timestamp') ? 'FieldSpec, Timestamp' : 'FieldSpec'} } from '${runtimeImport}';`);
+  if (types.has('decimal')) L.push(`import type Decimal from 'decimal.js';`);
   for (const r of refs) L.push(`import { ${r} } from './${r}';`);
   L.push('');
   L.push(`export class ${table} extends BaseEntity {`);
