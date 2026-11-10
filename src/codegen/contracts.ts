@@ -32,7 +32,12 @@ export function emitContract(contractName: string, abi: unknown[], runtimeImport
   const { functions, events } = analyzeAbi(contractName, abi);
   const L: string[] = [];
 
-  L.push(`import { BaseContract, IndexedEvent, EventDef } from '${runtimeImport}';`, '');
+  // type-only names in their own import: clients may compile with verbatimModuleSyntax
+  L.push(
+    `import { BaseContract } from '${runtimeImport}';`,
+    `import type { IndexedEvent, EventDef } from '${runtimeImport}';`,
+    '',
+  );
 
   for (const e of events) {
     L.push(`export type ${contractName}${e.name}Event = IndexedEvent<${e.inputs.length ? objectType(e.inputs) : '{}'}>;`);

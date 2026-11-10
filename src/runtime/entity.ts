@@ -1,5 +1,5 @@
 import type { EntityStore } from '../store/entities';
-import { FieldSpec, normalize, toDb, fromDb } from './fields';
+import { type FieldSpec, normalize, toDb, fromDb } from './fields';
 
 // Like the context, the entity store is module-level state shared through the package entry.
 let store: EntityStore | null = null;

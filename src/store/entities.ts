@@ -1,4 +1,4 @@
-import { Db, Collection, Document } from 'mongodb';
+import type { Db, Collection, Document } from 'mongodb';
 
 /** Per-chain access to the `ent_<chainId>_<Table>` collections. */
 export class EntityStore {

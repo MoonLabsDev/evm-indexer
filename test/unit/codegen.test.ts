@@ -113,6 +113,16 @@ describe('runCodegen', () => {
     expect(pool.price.toString()).toBe('1.5');
   });
 
+  it('contract files import the runtime types with import type (verbatimModuleSyntax)', () => {
+    const p = setup('importtype', {}, { 'Sample.json': sampleAbi() });
+    runCodegen({ ...p, schemaPath: join(p.root, 'missing.json') });
+    const src = readFileSync(join(p.outDir, 'contracts', 'Sample.ts'), 'utf8');
+    expect(src.split(/\r?\n/).slice(0, 2)).toEqual([
+      "import { BaseContract } from 'evm-indexer';",
+      "import type { IndexedEvent, EventDef } from 'evm-indexer';",
+    ]);
+  });
+
   it('treats a missing schema file as no entities', () => {
     const p = setup('noschema', {}, { 'Sample.json': sampleAbi() });
     const { files } = runCodegen({ ...p, schemaPath: join(p.root, 'missing.json') });
