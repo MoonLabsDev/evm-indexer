@@ -1,0 +1,183 @@
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
+import type { Db } from 'mongodb';
+import { startMongo } from '../helpers/mongo';
+import {
+  assertNotRunning, cmdProcess, cmdReset, cmdSetRevision, connectFromEnv, resolveChainId, resolvePort,
+} from '../../src/cli/commands';
+import { ConfigError } from '../../src/config/chains';
+import { SystemStore } from '../../src/store/system';
+
+let mongo: { db: Db; stop(): Promise<void> };
+let db: Db;
+let store: SystemStore;
+
+beforeAll(async () => { mongo = await startMongo(); });
+afterAll(async () => { await mongo.stop(); });
+beforeEach(async () => {
+  db = mongo.db;
+  await db.dropDatabase();
+  store = new SystemStore(db);
+  vi.spyOn(console, 'log').mockImplementation(() => {});
+  vi.spyOn(console, 'error').mockImplementation(() => {});
+});
+afterEach(() => { vi.restoreAllMocks(); });
+
+/** Fills chains 1 and 2 with one document in each sys_ and ent_ collection. */
+async function seed(): Promise<void> {
+  await store.init();
+  for (const chainId of [1, 2]) {
+    await store.getChain(chainId);
+    await store.setIndexed(chainId, 50);
+    await store.setRevision(chainId, 3);
+    await db.collection('sys_events').insertOne({ chainId, n: 1 });
+    await db.collection('sys_transactions').insertOne({ chainId, hash: `0x${chainId}` });
+    await db.collection('sys_templates').insertOne({ chainId, template: 'T', address: `0x${chainId}` });
+    await db.collection(`ent_${chainId}_Pool`).insertOne({ _id: 'a' as never });
+  }
+}
+
+const count = (name: string, filter: object = {}) => db.collection(name).countDocuments(filter);
+
+describe('resolveChainId', () => {
+  it('prefers the flag, falls back to CHAIN_ID', () => {
+    expect(resolveChainId('1329', {})).toBe(1329);
+    expect(resolveChainId('1329', { CHAIN_ID: '5' })).toBe(1329);
+    expect(resolveChainId(undefined, { CHAIN_ID: '5' })).toBe(5);
+  });
+
+  it('throws a ConfigError when there is no chain or it is not a positive integer', () => {
+    expect(() => resolveChainId(undefined, {})).toThrow(/chain/i);
+    expect(() => resolveChainId(undefined, {})).toThrow(ConfigError);
+    expect(() => resolveChainId('abc', {})).toThrow(ConfigError);
+    expect(() => resolveChainId('0', {})).toThrow(ConfigError);
+    expect(() => resolveChainId('-1', {})).toThrow(ConfigError);
+    expect(() => resolveChainId('1.5', {})).toThrow(ConfigError);
+  });
+});
+
+describe('environment', () => {
+  it('names the missing variable', async () => {
+    await expect(connectFromEnv({ MONGO_DB: 'x' })).rejects.toThrow(/MONGO_URI/);
+    await expect(connectFromEnv({ MONGO_URI: 'mongodb://localhost' })).rejects.toThrow(/MONGO_DB/);
+    await expect(connectFromEnv({})).rejects.toBeInstanceOf(ConfigError);
+  });
+
+  it('PORT defaults to 3000 and rejects garbage', () => {
+    expect(resolvePort({})).toBe(3000);
+    expect(resolvePort({ PORT: '8080' })).toBe(8080);
+    expect(() => resolvePort({ PORT: 'abc' })).toThrow(ConfigError);
+    expect(() => resolvePort({ PORT: '70000' })).toThrow(ConfigError);
+  });
+
+  it('cmdProcess fails on a project without chains.json before touching MongoDB', async () => {
+    await expect(cmdProcess({ root: 'test/does-not-exist' }, 1)).rejects.toThrow(/chains\.json/);
+  });
+});
+
+describe('cmdSetRevision', () => {
+  it('defaults to current + 1 and returns the new id', async () => {
+    expect(await cmdSetRevision(db, 1)).toBe(1);
+    expect(await cmdSetRevision(db, 1)).toBe(2);
+    expect((await store.getChain(1)).currentRevisionId).toBe(2);
+  });
+
+  it('sets an explicit revision', async () => {
+    expect(await cmdSetRevision(db, 1, 7)).toBe(7);
+    expect((await store.getChain(1)).currentRevisionId).toBe(7);
+    expect(await cmdSetRevision(db, 1, 0)).toBe(0);
+  });
+
+  it('rejects a negative or non-integer revision and changes nothing', async () => {
+    await expect(cmdSetRevision(db, 1, -1)).rejects.toThrow();
+    await expect(cmdSetRevision(db, 1, 1.5)).rejects.toThrow();
+    await expect(cmdSetRevision(db, 1, Number.NaN)).rejects.toThrow();
+    expect((await store.getChain(1)).currentRevisionId).toBe(0);
+  });
+
+  it('only touches the given chain', async () => {
+    await cmdSetRevision(db, 1, 4);
+    expect((await store.getChain(2)).currentRevisionId).toBe(0);
+  });
+});
+
+describe('cmdReset', () => {
+  it('does nothing and returns false when the confirmation is declined', async () => {
+    await seed();
+    const confirm = vi.fn(async () => false);
+    expect(await cmdReset(db, { chainId: 1, yes: false, confirm })).toBe(false);
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(await count('sys_events')).toBe(2);
+    expect(await count('ent_1_Pool')).toBe(1);
+    expect(await cmdReset(db, { yes: false, confirm })).toBe(false);
+    expect(await count('sys_events')).toBe(2);
+  });
+
+  it('deletes only that chain with --chain, and resets its counters', async () => {
+    await seed();
+    expect(await cmdReset(db, { chainId: 1, yes: true })).toBe(true);
+    for (const col of ['sys_events', 'sys_transactions', 'sys_templates']) {
+      expect(await count(col, { chainId: 1 })).toBe(0);
+      expect(await count(col, { chainId: 2 })).toBe(1);
+    }
+    expect(await count('ent_1_Pool')).toBe(0);
+    expect(await count('ent_2_Pool')).toBe(1);
+    expect(await store.getChain(1)).toMatchObject({ indexedBlock: 0, processedBlock: 0, currentRevisionId: 0, entityRevisionId: 0 });
+    expect(await store.getChain(2)).toMatchObject({ indexedBlock: 50, currentRevisionId: 3 });
+  });
+
+  it('asks no confirmation with yes', async () => {
+    await seed();
+    const confirm = vi.fn(async () => false);
+    expect(await cmdReset(db, { chainId: 1, yes: true, confirm })).toBe(true);
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it('without a chain, leaves no sys_ or ent_ collection', async () => {
+    await seed();
+    expect(await cmdReset(db, { yes: true })).toBe(true);
+    const names = (await db.listCollections().toArray()).map((c) => c.name);
+    expect(names.filter((n) => n.startsWith('sys_') || n.startsWith('ent_'))).toEqual([]);
+  });
+
+  it('runs after a confirmation that says yes', async () => {
+    await seed();
+    expect(await cmdReset(db, { chainId: 2, yes: false, confirm: async () => true })).toBe(true);
+    expect(await count('sys_events', { chainId: 2 })).toBe(0);
+  });
+});
+
+describe('assertNotRunning', () => {
+  it('refuses when the same kind has a fresh heartbeat, names kind and chain', async () => {
+    await store.heartbeat(1, 'indexer');
+    const err = await assertNotRunning(store, 1, 'indexer').then(() => null, (e: Error) => e);
+    expect(err?.message).toMatch(/already running/);
+    expect(err?.message).toContain('indexer');
+    expect(err?.message).toContain('1');
+  });
+
+  it('lets the other kind and other chains start', async () => {
+    await store.heartbeat(1, 'indexer');
+    await expect(assertNotRunning(store, 1, 'processor')).resolves.toBeUndefined();
+    await expect(assertNotRunning(store, 2, 'indexer')).resolves.toBeUndefined();
+  });
+
+  it('lets a stale heartbeat start', async () => {
+    await store.heartbeat(1, 'processor');
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.now() + 61_000);
+    try {
+      await expect(assertNotRunning(store, 1, 'processor')).resolves.toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('cli entry', () => {
+  it('importing it runs nothing and exposes the commands', async () => {
+    const { buildProgram } = await import('../../src/cli/index');
+    const program = buildProgram();
+    expect(program.commands.map((c) => c.name()).sort()).toEqual(['codegen', 'index', 'process', 'reset', 'set-revision']);
+    expect(vi.mocked(console.log)).not.toHaveBeenCalled();
+  });
+});

@@ -7,6 +7,13 @@
   "bin": {
     "evm-indexer": "dist/cli/index.js"
   },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
