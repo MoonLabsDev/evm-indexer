@@ -1,6 +1,6 @@
 {
   "plan": "e:/MoonLabs/Internal/Code/utils/evm-indexer/docs/superpowers/plans/2026-11-10-evm-indexer.md",
-  "updatedAt": 1794345609922,
+  "updatedAt": 1794345679944,
   "overhead": {
     "costUsd": {
       "b215dacd-31aa-4c84-9e47-64d98f06cb9d": 1.673714499999999
@@ -86,10 +86,10 @@
           "title": "Failing tests:",
           "status": "running",
           "costUsd": {
-            "b215dacd-31aa-4c84-9e47-64d98f06cb9d": 15.134830070555543
+            "b215dacd-31aa-4c84-9e47-64d98f06cb9d": 15.171447790555543
           },
           "approx": true,
-          "updatedAt": 1794345620081,
+          "updatedAt": 1794345691750,
           "startedAt": 1794337201206
         },
         {
@@ -388,10 +388,10 @@
           "title": "`git commit -m \"feat: entity codegen, field codecs and entity runtime\"`",
           "status": "running",
           "costUsd": {
-            "b215dacd-31aa-4c84-9e47-64d98f06cb9d": 5.429483903888887
+            "b215dacd-31aa-4c84-9e47-64d98f06cb9d": 5.466101623888887
           },
           "approx": true,
-          "updatedAt": 1794345620081,
+          "updatedAt": 1794345691750,
           "startedAt": 1794338744527
         }
       ]
@@ -406,10 +406,10 @@
           "title": "Failing runtime tests:",
           "status": "running",
           "costUsd": {
-            "b215dacd-31aa-4c84-9e47-64d98f06cb9d": 5.650914370555555
+            "b215dacd-31aa-4c84-9e47-64d98f06cb9d": 5.687532090555556
           },
           "approx": true,
-          "updatedAt": 1794345620081,
+          "updatedAt": 1794345691750,
           "startedAt": 1794338689314
         },
         {
@@ -417,10 +417,10 @@
           "title": "Failing type test `define.types.test.ts` (vitest `expectTypeOf` + `@ts-expect-error`; run with `npx vitest run --typecheck`):",
           "status": "running",
           "costUsd": {
-            "b215dacd-31aa-4c84-9e47-64d98f06cb9d": 5.650914370555555
+            "b215dacd-31aa-4c84-9e47-64d98f06cb9d": 5.687532090555556
           },
           "approx": true,
-          "updatedAt": 1794345620081,
+          "updatedAt": 1794345691750,
           "startedAt": 1794338689314
         },
         {
@@ -537,10 +537,10 @@
           "title": "Run `npx vitest run test/unit/indexer.test.ts` → FAIL. Step 3: Implement. Step 4: Run → PASS.",
           "status": "running",
           "costUsd": {
-            "b215dacd-31aa-4c84-9e47-64d98f06cb9d": 3.4074408288888876
+            "b215dacd-31aa-4c84-9e47-64d98f06cb9d": 3.4440585488888877
           },
           "approx": true,
-          "updatedAt": 1794345620081,
+          "updatedAt": 1794345691750,
           "startedAt": 1794339907236
         },
         {
@@ -563,10 +563,10 @@
           "title": "Failing tests (memory Mongo; events inserted directly; callbacks write entities via hand-written `Counter` entity):",
           "status": "running",
           "costUsd": {
-            "b215dacd-31aa-4c84-9e47-64d98f06cb9d": 3.4074408288888876
+            "b215dacd-31aa-4c84-9e47-64d98f06cb9d": 3.4440585488888877
           },
           "approx": true,
-          "updatedAt": 1794345620081,
+          "updatedAt": 1794345691750,
           "startedAt": 1794339907236
         },
         {
@@ -574,10 +574,10 @@
           "title": "Run → FAIL. Step 3: Implement. Step 4: Run → PASS.",
           "status": "running",
           "costUsd": {
-            "b215dacd-31aa-4c84-9e47-64d98f06cb9d": 3.17406681222222
+            "b215dacd-31aa-4c84-9e47-64d98f06cb9d": 3.21068453222222
           },
           "approx": true,
-          "updatedAt": 1794345620081,
+          "updatedAt": 1794345691750,
           "startedAt": 1794340042012
         },
         {
@@ -600,10 +600,10 @@
           "title": "Failing tests (port 0, global `fetch`): fresh loop → 200 `ok`; `lastLoopAt` 61 s old → 503; `/status` returns the object from `status()` verbatim; unknown path → 404.",
           "status": "running",
           "costUsd": {
-            "b215dacd-31aa-4c84-9e47-64d98f06cb9d": 3.17406681222222
+            "b215dacd-31aa-4c84-9e47-64d98f06cb9d": 3.21068453222222
           },
           "approx": true,
-          "updatedAt": 1794345620081,
+          "updatedAt": 1794345691750,
           "startedAt": 1794340042012
         },
         {
@@ -611,10 +611,10 @@
           "title": "Run → FAIL. Step 3: Implement. Step 4: Run → PASS.",
           "status": "running",
           "costUsd": {
-            "b215dacd-31aa-4c84-9e47-64d98f06cb9d": 3.010839812222218
+            "b215dacd-31aa-4c84-9e47-64d98f06cb9d": 3.0474575322222184
           },
           "approx": true,
-          "updatedAt": 1794345620081,
+          "updatedAt": 1794345691750,
           "startedAt": 1794340132838
         },
         {
@@ -676,10 +676,10 @@
           "title": "Run `npm run test:integration` → FAIL on the first assertion that exposes a real defect, or PASS. Fix defects in the owning module with a unit test added there first.",
           "status": "running",
           "costUsd": {
-            "b215dacd-31aa-4c84-9e47-64d98f06cb9d": 1.7549147899999962
+            "b215dacd-31aa-4c84-9e47-64d98f06cb9d": 1.7915325099999964
           },
           "approx": true,
-          "updatedAt": 1794345620081,
+          "updatedAt": 1794345691750,
           "startedAt": 1794341957313
         },
         {
