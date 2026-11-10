@@ -17,7 +17,13 @@ Node 20 or newer and a MongoDB instance.
 npm install evm-indexer
 ```
 
-`indexer.config.ts` is loaded through `tsx`, so the project needs no build step.
+`indexer.config.ts` is loaded through `tsx`, so the project needs no build step. The CLI registers
+tsx as a require hook and loads the config with Node's `require`, so the config, the generated code
+and your handlers all reach the same `evm-indexer` runtime as the CLI. CommonJS and ESM projects
+(`"type": "module"` in `package.json`) both work; a config that uses top-level `await` cannot be
+loaded this way.
+
+Installing from git or a local path builds the package (`prepare`), so the `evm-indexer` bin exists.
 
 ## Project layout
 
@@ -66,13 +72,16 @@ Keyed by chain id. Every field except `name` and `rpc` is optional; the values b
 | `retryDelays` | Backoff steps in ms on one RPC before switching to the next |
 | `logRange` | Bounds for the adaptive `eth_getLogs` block range (backfill) |
 | `blockBatch` | Bounds for the adaptive number of blocks per batch request (head mode) |
-| `headThreshold` | At most this many blocks behind the target: head mode (blocks and receipts); otherwise backfill (`eth_getLogs`) |
+| `headThreshold` | At most this many blocks behind the target: head mode (blocks and receipts); otherwise backfill (`eth_getLogs`). Backfill stops `headThreshold` blocks short of the target and leaves the rest to head mode, which notices blocks and receipts a lagging RPC does not have yet |
 | `useBloom` | Head mode skips blocks whose `logsBloom` cannot match. Set `false` on chains with unreliable blooms |
 | `pollInterval` | Loop pause in ms when caught up, and after an error |
 
 The RPC pool retries retryable errors (timeouts, 429, network, 5xx), fails over to the next RPC,
 and learns a log range and a batch size per RPC (grow when fast, halve on timeouts, 429 and
-"too large" errors). No block is ever skipped.
+"too large" errors). A second timeout in a row on the same RPC (a hung endpoint) moves straight to
+the next RPC instead of halving again (with a single RPC it keeps halving). A method an RPC does not
+support (`-32601`, "not supported") moves to the next RPC; once every RPC refused it, that error is
+thrown. No block is ever skipped.
 
 ### addresses.json
 
@@ -130,9 +139,12 @@ import { Pool, PoolEntity } from './generated';         // contract Pool, entity
 import { Pool as PoolRow } from './generated/entities'; // the entity under its own name
 ```
 
-`codegen` fails when `<Name>Entity` is itself taken by a contract or a table, or when a table is
-named like a type a contract file exports (`<Contract>Events`, `<Contract><Event>Event`). The
-MongoDB collection always follows the table name (`ent_<chainId>_Pool`).
+`codegen` fails when `<Name>Entity` is itself taken by a contract or a table, when a table is
+named like a type a contract file exports (`<Contract>Events`, `<Contract><Event>Event`), when two
+tables differ only by case, and when a contract would get two members of one name (e.g. overloads
+`get` become `get_0`, `get_1` next to a real `get_0`). The MongoDB collection always follows the
+table name (`ent_<chainId>_Pool`). Generated contract files import the runtime types with
+`import type`, so they compile under `verbatimModuleSyntax`.
 
 ### indexer.config.ts
 
@@ -165,6 +177,7 @@ export default defineIndexer({
 ```
 
 - Only listed events are indexed. An entry is `null`, a process callback, or `{ index?, process? }`.
+- A log whose topic0 matches but whose layout does not fit the ABI (e.g. an ERC-721 `Transfer` at an address configured as ERC-20) is skipped and logged in red once per address and topic0; indexing goes on.
 - Event names are type-checked against the generated class; callback parameters are inferred. Callbacks may be sync or async.
 - Declare templates with `defineTemplate` before the indexer config and register them under `templates`; the key is the template name. `Template.create` on an unregistered template throws.
 - Contract and template names share one namespace and must be unique.
@@ -214,14 +227,22 @@ export async function handleSwap(e: PoolPairSwapEvent) {
 | `evm-indexer codegen` | Generate `generated/contracts/*`, `generated/entities/*` and `generated/index.ts` from `abis/` and `schema.json` |
 | `evm-indexer index --chain <id>` | Run the indexer for one chain |
 | `evm-indexer process --chain <id>` | Run the processor for one chain |
-| `evm-indexer set-revision --chain <id> [--revision <n>]` | Set `currentRevisionId` (default: current + 1) and print it. The processor drops the chain's entities and replays |
+| `evm-indexer set-revision --chain <id> [--revision <n>]` | Set `currentRevisionId` (default: current + 1) and print it. The processor drops the chain's entities and replays. Revisions only move forward: `--revision` at or below the current one is refused, because events still stamped with an old id would not be replayed |
 | `evm-indexer reset [--chain <id>] [--yes] [--force]` | Without `--chain`: drop every `sys_*` and `ent_*` collection. With `--chain`: delete that chain's events, transactions and templates, drop its entities, set its counters to 0. Asks for `yes` unless `--yes` is given. Refuses (deleting nothing) while an indexer or processor of an affected chain has a heartbeat younger than 60 s, that is the given chain, or every chain with a `sys_chains` row; `--force` skips this check, `--yes` does not |
 
-Global options: `--debug` (per-event and per-RPC-retry log lines) and `--root <dir>`.
-`--chain` can come from `CHAIN_ID`; `reset` only reads `--chain`. `index` and `process` refuse to
-start while another process of the same kind has a heartbeat younger than 60 s for that chain
-(after a crash, wait up to a minute). SIGINT and SIGTERM close the status server and the MongoDB
-connection, then exit 0. Fatal errors are printed in red and exit with code 1.
+Global options: `--debug` and `--root <dir>`. `--debug` adds gray lines for every stored event
+(indexer), every processed event (processor), and every RPC retry, failover, size halving and
+rate-limit gap (with the RPC URL and the error kind).
+
+`--chain` can come from `CHAIN_ID`; `reset` only reads `--chain`. `index` and `process` write a
+heartbeat to `sys_chains` every 10 s for as long as they run, also during a long batch, and refuse to
+start while another process of the same kind has a heartbeat younger than 60 s for that chain (after
+a crash, wait up to a minute).
+
+SIGINT and SIGTERM stop cleanly: the processor finishes the current event, the indexer its current
+range; then the heartbeat is cleared, the status server and the MongoDB connection are closed, and
+the process exits 0. After a clean stop a restart or a `reset` is not refused. If the stop takes
+longer than 30 s, the process exits with code 1. Fatal errors are printed in red and exit with code 1.
 
 ## Environment
 
@@ -231,17 +252,21 @@ Read from the process environment, from `.env` in the working directory and from
 |---|---|
 | `MONGO_URI` | MongoDB connection string. Required for `index`, `process`, `set-revision`, `reset` |
 | `MONGO_DB` | Database name. Required, same commands |
-| `PORT` | Status server port, default `3000` |
+| `PORT` | Status server port, default `3000`. `index` and `process` on one machine need different values |
 | `CHAIN_ID` | Default for `--chain` |
 
 ## Status endpoint
 
 `index` and `process` start an HTTP server on `PORT`.
 
-- `GET /health`: `200 ok` while the loop's last successful iteration is younger than 60 s, otherwise `503`.
+- `GET /health`: `200 ok` while the loop's last progress is younger than 60 s, otherwise `503`. Progress is a successful loop iteration, a processed event, or a scan / store step of the indexer, so a long healthy batch stays `200`; a loop that keeps failing turns `503`.
 - `GET /status`: indexer `{ chainId, name, currentBlock, indexBlock }`; processor `{ chainId, name, currentBlock, indexBlock, processBlock, revisionId }`. `currentBlock` is the chain head, refreshed by the loop.
 
-Run the indexer and the processor of one chain on different ports.
+Run the indexer and the processor of one chain on different ports; a port in use is reported with
+its number.
+
+While more than one batch behind, the processor prints a green progress line with blocks/s and an
+ETA every 10 s, like the indexer while it is far from the head.
 
 ## Operational notes
 
