@@ -143,6 +143,17 @@ describe('SystemStore', () => {
     expect(await sys.listTemplates(1)).toEqual([t]);
   });
 
+  it('clearHeartbeat makes only that kind of that chain look stopped', async () => {
+    await sys.heartbeat(1, 'indexer');
+    await sys.heartbeat(1, 'processor');
+    await sys.heartbeat(2, 'indexer');
+    await sys.clearHeartbeat(1, 'indexer');
+    expect(await sys.isAlive(1, 'indexer')).toBe(false);
+    expect((await sys.getChain(1)).indexerHeartbeat).toBeNull();
+    expect(await sys.isAlive(1, 'processor')).toBe(true);
+    expect(await sys.isAlive(2, 'indexer')).toBe(true);
+  });
+
   it('tracks heartbeats', async () => {
     await sys.heartbeat(1, 'indexer');
     expect(await sys.isAlive(1, 'indexer')).toBe(true);

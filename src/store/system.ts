@@ -82,6 +82,11 @@ export class SystemStore {
     await this.setFields(chainId, { [`${kind}Heartbeat`]: new Date() });
   }
 
+  /** Marks that kind of process of the chain as stopped (a clean shutdown), so a restart or reset is not refused. */
+  async clearHeartbeat(chainId: number, kind: 'indexer' | 'processor'): Promise<void> {
+    await this.setFields(chainId, { [`${kind}Heartbeat`]: null });
+  }
+
   async isAlive(chainId: number, kind: 'indexer' | 'processor', nowMs: number = Date.now()): Promise<boolean> {
     const chain = await this.getChain(chainId);
     const beat = kind === 'indexer' ? chain.indexerHeartbeat : chain.processorHeartbeat;

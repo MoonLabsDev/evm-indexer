@@ -10,6 +10,7 @@ import { block, chain, currentContext, tx } from '../../src/runtime/context';
 import { defineIndexer, defineTemplate } from '../../src/runtime/define';
 import { BaseEntity } from '../../src/runtime/entity';
 import { serializeArgs, type EventDef } from '../../src/runtime/events';
+import { setDebug } from '../../src/log';
 import type { FieldSpec } from '../../src/runtime/fields';
 import type { ChainConfig, EventDoc, IndexedEvent, TxDoc } from '../../src/types';
 
@@ -438,18 +439,17 @@ describe('Processor', () => {
       await bump();
     };
     const sleeps: number[] = [];
-    const stop = new Error('stop');
     let lastLoopDuringFailures = -1;
     const { processor } = setup({
       sleep: async (ms) => {
         sleeps.push(ms);
         if (sleeps.length === 2) lastLoopDuringFailures = processor.lastLoopAt();
-        if (sleeps.length === 3) throw stop; // the idle sleep after success
+        if (sleeps.length === 3) processor.stop(); // the idle sleep after success
       },
     });
     await processor.init();
     expect(processor.lastLoopAt()).toBe(0);
-    await expect(processor.run()).rejects.toBe(stop);
+    await expect(processor.run()).resolves.toBeUndefined();
 
     expect(sleeps).toEqual([1000, 1000, 1000]);
     expect(lastLoopDuringFailures).toBe(0);
@@ -470,18 +470,17 @@ describe('Processor', () => {
     await insert([{ b: 10, t: 0, l: 0 }]);
     await store.setIndexed(CHAIN_ID, 20);
     hooks.onTransfer = async () => { throw new Error('kaput'); };
-    const stop = new Error('stop');
     let sleeps = 0;
     const { processor } = setup({
       sleep: async () => {
         sleeps += 1;
-        if (sleeps === 3) throw stop;
+        if (sleeps === 3) processor.stop();
       },
     });
     await processor.init();
     await store.setProcessed(CHAIN_ID, 0);
     await db.collection('sys_chains').updateOne({ chainId: CHAIN_ID }, { $set: { processorHeartbeat: null } });
-    await expect(processor.run()).rejects.toBe(stop);
+    await processor.run();
     expect(processor.lastLoopAt()).toBe(0);
     expect(await store.isAlive(CHAIN_ID, 'processor')).toBe(true);
   });
@@ -490,14 +489,113 @@ describe('Processor', () => {
     await insert([{ b: 10, t: 0, l: 0 }]);
     await store.setIndexed(CHAIN_ID, 20);
     hooks.onTransfer = async () => { throw new Error('kaput'); };
-    const stop = new Error('stop');
-    const { processor } = setup({ sleep: async () => { throw stop; } });
+    const { processor } = setup({ sleep: async () => { processor.stop(); } });
     await processor.init();
     vi.spyOn(store, 'heartbeat').mockRejectedValue(new Error('mongo down'));
-    await expect(processor.run()).rejects.toBe(stop);
+    await processor.run();
     const errors = vi.mocked(console.error).mock.calls.flat().join('\n');
     expect(errors).toContain('kaput');
     expect(errors).not.toContain('mongo down');
+  });
+
+  it('stop() lets the current event finish, stamps it, and run() returns', async () => {
+    await insert([{ b: 10, t: 0, l: 0 }, { b: 11, t: 0, l: 0 }, { b: 12, t: 0, l: 0 }]);
+    await store.setIndexed(CHAIN_ID, 20);
+    const { processor } = setup({ sleep: async () => { throw new Error('must not sleep'); } });
+    hooks.onTransfer = async (e) => {
+      if (e.blockNumber === 11) processor.stop();
+      await new Promise((r) => setTimeout(r, 20));
+      await bump();
+    };
+    await processor.init();
+    await expect(processor.run()).resolves.toBeUndefined();
+    expect(hooks.seen).toEqual(['10/0/0', '11/0/0']);
+    expect(await stamps()).toEqual([0, 0, -1]);
+    expect(await counter()).toBe(2);
+    expect((await store.getChain(CHAIN_ID)).processedBlock).toBe(11);
+  });
+
+  it('stop() during the idle sleep ends run() without waiting for pollInterval', async () => {
+    await store.setIndexed(CHAIN_ID, 5);
+    const { processor } = setup({ sleep: () => new Promise(() => {}) }); // a sleep that never ends
+    await processor.init();
+    const done = processor.run();
+    await new Promise((r) => setTimeout(r, 50));
+    processor.stop();
+    await expect(done).resolves.toBeUndefined();
+  });
+
+  it('lastLoopAt advances after each processed event of a long batch', async () => {
+    await insert([{ b: 10, t: 0, l: 0 }, { b: 11, t: 0, l: 0 }, { b: 12, t: 0, l: 0 }]);
+    await store.setIndexed(CHAIN_ID, 20);
+    const seenAt: number[] = [];
+    const { processor } = setup({ sleep: async () => { processor.stop(); } });
+    hooks.onTransfer = async () => {
+      seenAt.push(processor.lastLoopAt());
+      await bump();
+    };
+    await processor.init();
+    await processor.run(); // one batch of three events, then idle -> stop
+    expect(seenAt[0]).toBe(0);
+    expect(seenAt[1]).toBeGreaterThan(0);
+    expect(seenAt[2]).toBeGreaterThanOrEqual(seenAt[1]);
+  });
+
+  it('lastLoopAt does not advance while ticks keep failing at the same event', async () => {
+    await insert([{ b: 10, t: 0, l: 0 }, { b: 11, t: 0, l: 0 }]);
+    await store.setIndexed(CHAIN_ID, 20);
+    const atSleep: number[] = [];
+    const { processor } = setup({
+      sleep: async () => { atSleep.push(processor.lastLoopAt()); if (atSleep.length === 3) processor.stop(); },
+    });
+    // 10 is real progress; 11 fails on every retry
+    hooks.onTransfer = async (e) => {
+      if (e.blockNumber === 11) throw new Error('kaput');
+      await bump();
+    };
+    await processor.init();
+    await processor.run();
+    expect(atSleep[0]).toBeGreaterThan(0);
+    expect(atSleep).toEqual([atSleep[0], atSleep[0], atSleep[0]]);
+  });
+
+  it('--debug: one line per processed event; a green progress line with ETA while more than a batch behind', async () => {
+    vi.mocked(console.log).mockClear();
+    setDebug(true);
+    try {
+      await insert([{ b: 10, t: 0, l: 0 }, { b: 11, t: 0, l: 0 }, { b: 12, t: 0, l: 0 }]);
+      await store.setIndexed(CHAIN_ID, 20);
+      const realNow = Date.now.bind(Date);
+      let offset = 0;
+      vi.spyOn(Date, 'now').mockImplementation(() => realNow() + offset);
+      const { processor } = setup({ batchSize: 1 });
+      await processor.init();
+      await processor.tick();
+      offset += 40_000; // over 30 s elapsed: the ETA can be estimated
+      await processor.tick();
+      const lines = vi.mocked(console.log).mock.calls.map((c) => String(c[0]));
+      const debug = lines.filter((m) => m.includes('[DEBUG]') && m.includes('processed'));
+      expect(debug).toHaveLength(2);
+      expect(debug[0]).toContain('Token.Transfer');
+      expect(debug[0]).toContain('10/0/0');
+      const tasks = lines.filter((m) => m.includes('[TASK] process'));
+      expect(tasks.length).toBeGreaterThan(0);
+      expect(tasks.at(-1)).toMatch(/block 11 of 20.*eta/);
+    } finally {
+      setDebug(false);
+    }
+  });
+
+  it('loads no transaction for an event without a process callback', async () => {
+    await insert([{ b: 10, t: 0, l: 0, event: 'Mint' }]);
+    await db.collection('sys_transactions').deleteMany({});
+    await store.setIndexed(CHAIN_ID, 20);
+    const spy = vi.spyOn(store, 'getTransaction');
+    const { processor } = setup();
+    await processor.init();
+    expect(await processor.tick()).toBe('worked');
+    expect(spy).not.toHaveBeenCalled();
+    expect(await stamps()).toEqual([0]);
   });
 
   it('a failing setProcessed after a callback error does not replace the callback error', async () => {

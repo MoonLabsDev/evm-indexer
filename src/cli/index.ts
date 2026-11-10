@@ -6,8 +6,12 @@ import { config as loadEnv } from 'dotenv';
 import { ConfigError } from '../config/chains';
 import { log, setDebug } from '../log';
 import {
-  cmdCodegen, cmdIndex, cmdProcess, cmdReset, cmdSetRevision, connectFromEnv, resolveChainId, runShutdown,
+  cmdCodegen, cmdIndex, cmdProcess, cmdReset, cmdSetRevision, connectFromEnv, isStopRequested, requestStop,
+  resolveChainId, runShutdown,
 } from './commands';
+
+/** After SIGINT / SIGTERM the process exits at the latest this long after the signal. */
+const SHUTDOWN_TIMEOUT_MS = 30_000;
 
 interface GlobalOpts { debug?: boolean; root: string }
 
@@ -78,12 +82,15 @@ export function buildProgram(): Command {
 
 async function main(): Promise<void> {
   const program = buildProgram();
-  let shuttingDown = false;
+  // The loops finish the current event / range and return; then the cleanups below run (heartbeat
+  // cleared, status server and MongoDB closed) and the process exits 0. A hard timeout forces exit.
   const shutdown = (): void => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    log.step('Shut down');
-    void runShutdown().then(() => process.exit(0));
+    if (!requestStop()) return;
+    log.step('Shut down: finishing the current work');
+    setTimeout(() => {
+      log.error(`shutdown did not finish within ${SHUTDOWN_TIMEOUT_MS / 1000} s, forcing exit`);
+      process.exit(1);
+    }, SHUTDOWN_TIMEOUT_MS).unref();
   };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
@@ -96,6 +103,11 @@ async function main(): Promise<void> {
     log.error(message, debug ? err : undefined);
     await runShutdown();
     process.exit(1);
+  }
+  await runShutdown();
+  if (isStopRequested()) {
+    log.result('stopped');
+    process.exit(0);
   }
 }
 

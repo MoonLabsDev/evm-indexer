@@ -22,6 +22,7 @@ const LINK = join(LINK_DIR, 'evm-indexer');
 const CLI = join(ROOT, 'dist', 'cli', 'index.js');
 const TSC_BIN = join(ROOT, 'node_modules', 'typescript', 'bin', 'tsc');
 const ESM_PROJECT = join(ROOT, 'test', '.tmp', 'esm-project');
+const SIGNAL_PRELOAD = join(ROOT, 'test', 'helpers', 'signalOnStdin.cjs');
 const WAIT_MS = 60_000;
 
 interface Cli { child: ChildProcess; out: () => string; exited: Promise<number | null> }
@@ -80,7 +81,9 @@ function runCli(args: string[], env: NodeJS.ProcessEnv = process.env): { status:
 }
 
 function startCli(args: string[], env: NodeJS.ProcessEnv): Cli {
-  const child = spawn(process.execPath, [CLI, ...args, '--root', PROJECT], { cwd: PROJECT, env, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, ['-r', SIGNAL_PRELOAD, CLI, ...args, '--root', PROJECT], {
+    cwd: PROJECT, env, stdio: ['pipe', 'pipe', 'pipe'],
+  });
   children.push(child);
   let output = '';
   const keep = (d: Buffer) => { output = (output + d.toString()).slice(-50_000); };
@@ -99,14 +102,21 @@ async function waitFor(what: string, cli: Cli, check: () => Promise<boolean>): P
   }
 }
 
-/** Sends SIGTERM (on Windows this terminates the process at once) and waits for the exit. */
-async function stop(cli: Cli): Promise<number | null> {
-  cli.child.kill('SIGTERM');
+async function exitOf(cli: Cli, what: string): Promise<number | null> {
   const timeout = new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), 40_000));
   const code = await Promise.race([cli.exited, timeout]);
-  if (code === 'timeout') throw new Error(`the CLI did not exit after SIGTERM:\n${cli.out()}`);
+  if (code === 'timeout') throw new Error(`the CLI did not exit after ${what}:\n${cli.out()}`);
   return code;
 }
+
+/** A real SIGTERM where the platform can deliver one; on Windows the preload raises it from stdin. */
+async function sigterm(cli: Cli): Promise<number | null> {
+  if (process.platform === 'win32') cli.child.stdin?.write('SIGTERM\n');
+  else cli.child.kill('SIGTERM');
+  return exitOf(cli, 'SIGTERM');
+}
+
+const chainRow = async () => db.collection('sys_chains').findOne({ chainId: CHAIN_ID });
 
 async function ping(address: string): Promise<void> {
   const c = new Contract(address, artifact('Pool').abi as never, signer);
@@ -190,9 +200,11 @@ describe('the built CLI against a client project that imports evm-indexer by nam
     expect(await status.json()).toMatchObject({ chainId: CHAIN_ID, name: 'hardhat', indexBlock: head });
     expect((await fetch(`http://127.0.0.1:${port}/health`)).status).toBe(200);
 
-    const code = await stop(cli);
-    if (process.platform !== 'win32') expect(code, cli.out()).toBe(0);
+    // a clean stop: the range is finished, the heartbeat cleared, exit code 0
+    expect(await sigterm(cli), cli.out()).toBe(0);
+    expect(cli.out()).toMatch(/Shut down/);
     expect(cli.out()).not.toMatch(/ERROR/);
+    expect((await chainRow())?.indexerHeartbeat).toBeNull();
   });
 
   it('process runs the process callbacks: entities saved, contract read at the event block, /status answers', async () => {
@@ -212,9 +224,23 @@ describe('the built CLI against a client project that imports evm-indexer by nam
     const status = await fetch(`http://127.0.0.1:${port}/status`);
     expect(await status.json()).toMatchObject({ chainId: CHAIN_ID, processBlock: head, revisionId: 0 });
 
-    const code = await stop(cli);
-    if (process.platform !== 'win32') expect(code, cli.out()).toBe(0);
+    expect(await sigterm(cli), cli.out()).toBe(0);
     expect(cli.out()).not.toMatch(/ERROR/);
+    expect((await chainRow())?.processorHeartbeat).toBeNull();
+  });
+
+  it('reset --chain right after the clean stops is not refused', async () => {
+    const res = runCli(['reset', '--chain', String(CHAIN_ID), '--yes'], cliEnv(await freePort()));
+    expect(res.status, res.output).toBe(0);
+    expect(res.output).toContain('reset done');
+    expect(await db.collection('sys_events').countDocuments({ chainId: CHAIN_ID })).toBe(0);
+  });
+
+  it('a restart is not refused, and a kill ends the process', async () => {
+    const cli = startCli(['index', '--chain', String(CHAIN_ID)], cliEnv(await freePort()));
+    await waitFor('restarted indexer caught up', cli, async () => ((await chainRow())?.indexedBlock ?? 0) >= head);
+    killTree(cli.child);
+    expect(await exitOf(cli, 'kill')).not.toBe(0);
   });
 
   it('loads the config of an ESM client project ("type": "module")', () => {

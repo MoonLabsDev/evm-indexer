@@ -1,4 +1,4 @@
-import { log } from '../log';
+import { eta, formatTimespan, log } from '../log';
 import { clearContext, setContext } from '../runtime/context';
 import { setRpc } from '../runtime/contract';
 import type { NormalizedConfig } from '../runtime/define';
@@ -27,6 +27,7 @@ export interface ProcessorDeps {
 
 const DEFAULT_BATCH_SIZE = 500;
 const HEAD_REFRESH_MS = 5_000;
+const PROGRESS_EVERY_MS = 10_000;
 
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -53,6 +54,9 @@ export class Processor {
   private processBlock = 0;
   private revisionId = 0;
   private lastLoop = 0;
+  private stopping = false;
+  private wake: (() => void) | null = null;
+  private progress: { block: number; ms: number; lastLog: number } | null = null;
 
   constructor(deps: ProcessorDeps) {
     this.chain = deps.chain;
@@ -104,10 +108,14 @@ export class Processor {
     let last: EventDoc | null = null;
     try {
       for (const doc of batch) {
+        if (this.stopping) break; // the event before this one finished; stop between events
         this.failedEvent = doc;
         await this.processEvent(doc);
         await this.store.stampEvent(doc, revision);
         last = doc;
+        // real progress: keeps /health green during a long batch (a failing retry makes none)
+        this.lastLoop = Date.now();
+        log.debug(`chain ${chainId}: processed ${describeEvent(doc)}`);
       }
       this.failedEvent = null;
     } catch (err) {
@@ -115,13 +123,17 @@ export class Processor {
       throw err;
     }
     await this.recordProgress(last, false);
+    this.reportProgress(batch.length === this.batchSize, state.indexedBlock);
     return 'worked';
   }
 
-  /** Runs forever; a failing callback is logged and the same event is retried after `pollInterval`. */
-  async run(): Promise<never> {
+  /**
+   * Runs until `stop()`; a failing callback is logged and the same event is retried after
+   * `pollInterval`. A stop lets the current event finish (and be stamped) before run() returns.
+   */
+  async run(): Promise<void> {
     const { chainId, pollInterval } = this.chain;
-    for (;;) {
+    while (!this.stopping) {
       let wait: boolean;
       try {
         wait = (await this.tick()) === 'idle';
@@ -132,8 +144,35 @@ export class Processor {
         wait = true;
       }
       await this.beat();
-      if (wait) await this.sleep(pollInterval);
+      if (wait && !this.stopping) await this.pause(pollInterval);
     }
+  }
+
+  /** Asks run() to return after the current event; ends a pending sleep at once. */
+  stop(): void {
+    this.stopping = true;
+    this.wake?.();
+  }
+
+  private async pause(ms: number): Promise<void> {
+    await Promise.race([this.sleep(ms), new Promise<void>((resolve) => { this.wake = resolve; })]);
+    this.wake = null;
+  }
+
+  /** While more than one batch behind, prints progress with an ETA every 10 s. */
+  private reportProgress(behind: boolean, target: number): void {
+    if (!behind) {
+      this.progress = null;
+      return;
+    }
+    const now = Date.now();
+    const current = this.processBlock;
+    if (!this.progress) this.progress = { block: current, ms: now, lastLog: 0 };
+    if (now - this.progress.lastLog < PROGRESS_EVERY_MS) return;
+    this.progress.lastLog = now;
+    const e = eta(this.progress.block, this.progress.ms, current, target, now);
+    const rest = e ? `, ${e.blocksPerSecond.toFixed(1)} blocks/s, eta ${formatTimespan(e.seconds)}` : '';
+    log.task('process', `${this.chain.name}: block ${current} of ${target}${rest}`);
   }
 
   /**
@@ -167,7 +206,7 @@ export class Processor {
     };
   }
 
-  /** Time (ms) of the last successful loop iteration; 0 before the first one. */
+  /** Time (ms) of the last successful loop iteration or processed event; 0 before the first one. */
   lastLoopAt(): number {
     return this.lastLoop;
   }
@@ -195,6 +234,8 @@ export class Processor {
       }
       return;
     }
+    const callback = handlers.process;
+    if (!callback) return; // stamped without loading its transaction
     const t = await this.store.getTransaction(chainId, doc.txHash);
     if (!t) {
       throw new Error(`chain ${chainId}: transaction ${doc.txHash} of event ${describeEvent(doc)} is missing`);
@@ -203,8 +244,6 @@ export class Processor {
       args: deserializeArgs(doc.data), address: doc.address, blockNumber: doc.blockNumber,
       txIndex: doc.txIndex, logIndex: doc.logIndex, txHash: doc.txHash,
     };
-    const callback = handlers.process;
-    if (!callback) return;
     setContext({
       mode: 'process',
       chain: { id: chainId, name },

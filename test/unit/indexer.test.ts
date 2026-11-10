@@ -12,6 +12,7 @@ import { BaseEntity } from '../../src/runtime/entity';
 import type { EventDef } from '../../src/runtime/events';
 import type { FieldSpec } from '../../src/runtime/fields';
 import { AllRpcFailedError } from '../../src/rpc/errors';
+import { setDebug } from '../../src/log';
 import type { ChainConfig, EventDoc, IndexedEvent, RawBlock, RawLog, StaticEntry } from '../../src/types';
 
 // ---- fake contracts with real ABIs, so decodeLog runs for real ----
@@ -633,18 +634,17 @@ describe('Indexer', () => {
   });
 
   it('run() logs a failure, sleeps pollInterval, retries, and only stamps lastLoopAt on success', async () => {
-    class Stop extends Error {}
     const sleeps: number[] = [];
     let atFirstSleep = -1;
     const sleep = vi.fn(async (ms: number) => {
       sleeps.push(ms);
       if (sleeps.length === 1) atFirstSleep = ctx.indexer.lastLoopAt();
-      if (sleeps.length === 2) throw new Stop();
+      if (sleeps.length === 2) ctx.indexer.stop();
     });
     const ctx = setup(new FakeChain(), { head: 4, sleep, chainOver: { pollInterval: 250 } });
     await ctx.indexer.init();
     ctx.poolObj.getBlockNumber.mockRejectedValueOnce(new AllRpcFailedError());
-    await expect(ctx.indexer.run()).rejects.toBeInstanceOf(Stop);
+    await expect(ctx.indexer.run()).resolves.toBeUndefined();
     expect(sleeps).toEqual([250, 250]);
     expect(atFirstSleep).toBe(0); // the failed tick did not stamp it
     expect(ctx.indexer.lastLoopAt()).toBeGreaterThan(0); // the idle tick did
@@ -652,35 +652,104 @@ describe('Indexer', () => {
   });
 
   it('run() keeps the heartbeat fresh while the tick keeps failing, without touching lastLoopAt', async () => {
-    class Stop extends Error {}
     let sleeps = 0;
     const sleep = vi.fn(async () => {
       sleeps += 1;
-      if (sleeps === 3) throw new Stop();
+      if (sleeps === 3) ctx.indexer.stop();
     });
     const ctx = setup(new FakeChain(), { head: 4, sleep });
     await ctx.indexer.init();
     ctx.poolObj.getBlockNumber.mockRejectedValue(new AllRpcFailedError());
     expect((await ctx.store.getChain(CHAIN_ID)).indexerHeartbeat).toBeNull();
-    await expect(ctx.indexer.run()).rejects.toBeInstanceOf(Stop);
+    await ctx.indexer.run();
     expect(ctx.indexer.lastLoopAt()).toBe(0);
     expect(await ctx.store.isAlive(CHAIN_ID, 'indexer')).toBe(true);
   });
 
   it('run() logs a failing heartbeat at debug level only and still reports the tick error', async () => {
-    class Stop extends Error {}
-    let sleeps = 0;
-    const sleep = vi.fn(async () => {
-      sleeps += 1;
-      if (sleeps === 1) throw new Stop();
-    });
+    const sleep = vi.fn(async () => { ctx.indexer.stop(); });
     const ctx = setup(new FakeChain(), { head: 4, sleep });
     await ctx.indexer.init();
     ctx.poolObj.getBlockNumber.mockRejectedValue(new AllRpcFailedError());
     vi.spyOn(ctx.store, 'heartbeat').mockRejectedValue(new Error('mongo down'));
-    await expect(ctx.indexer.run()).rejects.toBeInstanceOf(Stop);
+    await ctx.indexer.run();
     const errors = vi.mocked(console.error).mock.calls.flat().join('\n');
     expect(errors).toMatch(/all RPC endpoints failed/);
     expect(errors).not.toMatch(/mongo down/);
+  });
+
+  it('stop() lets the current range finish and store, then run() returns', async () => {
+    const fake = new FakeChain();
+    fake.created(P, 10, 0, 0);
+    fake.swap(P, 1n, 12, 0, 0);
+    const sleep = vi.fn(async () => { throw new Error('must not sleep'); });
+    const ctx = setup(fake, { head: 40, range: 10, sleep });
+    hooks.created = async () => { ctx.indexer.stop(); };
+    await ctx.indexer.init();
+    await expect(ctx.indexer.run()).resolves.toBeUndefined();
+    expect(ctx.head.calls).toEqual([[5, 40]]);
+    expect((await ctx.store.getChain(CHAIN_ID)).indexedBlock).toBe(14);
+    expect((await eventsSorted()).map((e) => e.blockNumber)).toEqual([10, 12]);
+  });
+
+  it('stop() during the idle sleep ends run() without waiting for pollInterval', async () => {
+    const ctx = setup(new FakeChain(), { head: 4, sleep: () => new Promise(() => {}) });
+    await ctx.indexer.init();
+    const done = ctx.indexer.run();
+    await new Promise((r) => setTimeout(r, 50));
+    ctx.indexer.stop();
+    await expect(done).resolves.toBeUndefined();
+  });
+
+  it('lastLoopAt advances during a long tick (after the scan and per event), not while ticks keep failing', async () => {
+    const fake = new FakeChain();
+    fake.created(P, 10, 0, 0);
+    fake.created(Q, 11, 0, 0);
+    const seen: number[] = [];
+    let failStore = false;
+    const atSleep: number[] = [];
+    const ctx = setup(fake, {
+      head: 20,
+      sleep: async () => { atSleep.push(ctx.indexer.lastLoopAt()); if (atSleep.length >= 4) ctx.indexer.stop(); },
+    });
+    hooks.created = async () => { seen.push(ctx.indexer.lastLoopAt()); };
+    await ctx.indexer.init();
+    const realUpsert = ctx.store.upsertEvents.bind(ctx.store);
+    vi.spyOn(ctx.store, 'upsertEvents').mockImplementation(async (docs) => {
+      if (failStore) throw new Error('mongo down');
+      return realUpsert(docs);
+    });
+
+    // a healthy first tick: lastLoopAt is set before the first callback (after the scan)
+    expect(await ctx.indexer.tick()).toBe('worked');
+    expect(seen[0]).toBeGreaterThan(0);
+
+    // now every tick fails after its scan: once the loop is failing, the retries do not refresh it
+    await ctx.store.setIndexed(CHAIN_ID, 0);
+    failStore = true;
+    await ctx.indexer.run();
+    expect(atSleep).toHaveLength(4);
+    expect(new Set(atSleep).size).toBe(1);
+  });
+
+  it('--debug: one line per stored event', async () => {
+    vi.mocked(console.log).mockClear();
+    setDebug(true);
+    try {
+      const fake = new FakeChain();
+      fake.created(P, 10, 0, 0);
+      fake.swap(P, 1n, 12, 0, 3);
+      const { indexer } = setup(fake, { head: 20 });
+      await indexer.init();
+      await indexer.tick();
+      const lines = vi.mocked(console.log).mock.calls.map((c) => String(c[0])).filter((m) => m.includes('[DEBUG]') && m.includes('stored'));
+      expect(lines).toHaveLength(2);
+      expect(lines[0]).toContain('Factory.Created');
+      expect(lines[0]).toContain('10/0/0');
+      expect(lines[1]).toContain('PoolT.Swap');
+      expect(lines[1]).toContain(P);
+    } finally {
+      setDebug(false);
+    }
   });
 });

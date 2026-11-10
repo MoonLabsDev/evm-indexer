@@ -31,6 +31,29 @@ const files = (p: ProjectPaths) => ({
 // ---- shutdown ----
 
 const cleanups: Array<() => Promise<void>> = [];
+const stoppers: Array<() => void> = [];
+let stopRequested = false;
+
+/** Registers how to stop a running loop on SIGINT / SIGTERM; runs at once when a stop was already requested. */
+export function onStop(fn: () => void): void {
+  stoppers.push(fn);
+  if (stopRequested) fn();
+}
+
+/**
+ * SIGINT / SIGTERM: the loops finish their current event or range and return, so the command ends
+ * and main() runs the cleanups. Returns false when a stop was already requested.
+ */
+export function requestStop(): boolean {
+  if (stopRequested) return false;
+  stopRequested = true;
+  for (const fn of stoppers) fn();
+  return true;
+}
+
+export function isStopRequested(): boolean {
+  return stopRequested;
+}
 
 /** Registers something to close on SIGINT / SIGTERM (status server, Mongo client). */
 export function onShutdown(fn: () => Promise<void>): void {
@@ -93,6 +116,35 @@ export async function cmdCodegen(p: ProjectPaths): Promise<void> {
   log.result(`${written.length} files written`);
 }
 
+const HEARTBEAT_EVERY_MS = 10_000;
+
+/**
+ * Writes the single-instance heartbeat now and then every `everyMs` for as long as the process runs,
+ * independent of the loop (a long tick does not let it go stale). `stop()` ends the timer and clears
+ * the heartbeat, so a restart or reset right after a clean stop is not refused.
+ */
+export function startHeartbeat(
+  store: SystemStore, chainId: number, kind: 'indexer' | 'processor', everyMs = HEARTBEAT_EVERY_MS,
+): { stop(): Promise<void> } {
+  const report = (err: unknown): void => {
+    log.debug(`chain ${chainId}: heartbeat failed: ${err instanceof Error ? err.message : String(err)}`);
+  };
+  // the first write starts right away; later ones wait for the previous write
+  let pending: Promise<void> = store.heartbeat(chainId, kind).catch(report);
+  const beat = (): void => {
+    pending = pending.then(() => store.heartbeat(chainId, kind)).catch(report);
+  };
+  const timer = setInterval(beat, everyMs);
+  timer.unref();
+  return {
+    async stop() {
+      clearInterval(timer);
+      await pending;
+      await store.clearHeartbeat(chainId, kind);
+    },
+  };
+}
+
 /** Refuses to start when the same kind of process has a fresh heartbeat for the chain. */
 export async function assertNotRunning(store: SystemStore, chainId: number, kind: 'indexer' | 'processor'): Promise<void> {
   if (await store.isAlive(chainId, kind)) {
@@ -110,7 +162,26 @@ function buildPool(chain: ChainConfig): RpcPool {
   );
 }
 
-export async function cmdIndex(p: ProjectPaths, chainId: number): Promise<never> {
+/** Starts the status server; a port in use gets a message naming the port and the PORT rule. */
+export async function serveStatus(
+  kind: string, status: () => object, lastLoopAt: () => number, env: NodeJS.ProcessEnv = process.env,
+): Promise<Awaited<ReturnType<typeof startServer>>> {
+  const port = resolvePort(env);
+  try {
+    return await startServer({ port, status, lastLoopAt });
+  } catch (err) {
+    if ((err as { code?: unknown }).code === 'EADDRINUSE') {
+      throw new ConfigError(
+        `status port ${port} of the ${kind} is already in use; set PORT to a free port ` +
+          '(index and process need different PORT values when they run on one machine)',
+      );
+    }
+    throw err;
+  }
+}
+
+/** Runs the indexer until SIGINT / SIGTERM; returns once the current range is stored. */
+export async function cmdIndex(p: ProjectPaths, chainId: number): Promise<void> {
   const f = files(p);
   log.step(`Load configuration for chain ${chainId}`);
   const chain = loadChain(f.chains, chainId);
@@ -123,23 +194,23 @@ export async function cmdIndex(p: ProjectPaths, chainId: number): Promise<never>
   onShutdown(() => client.close());
   const store = new SystemStore(db);
   await assertNotRunning(store, chainId, 'indexer');
+  const heartbeat = startHeartbeat(store, chainId, 'indexer');
+  onShutdown(() => heartbeat.stop());
 
   const indexer = new Indexer({ chain, pool: buildPool(chain), store, config, statics });
   await indexer.init();
-  const server = await startServer({
-    port: resolvePort(process.env),
-    status: () => indexer.status(),
-    lastLoopAt: () => indexer.lastLoopAt(),
-  });
+  const server = await serveStatus('indexer', () => indexer.status(), () => indexer.lastLoopAt());
   onShutdown(() => server.close());
   log.result(`status server on port ${server.port}`);
 
   process.title = `evm-indexer [indexer] ${chainId}`;
   log.step(`Index chain ${chainId} (${chain.name})`);
-  return indexer.run();
+  onStop(() => indexer.stop());
+  await indexer.run();
 }
 
-export async function cmdProcess(p: ProjectPaths, chainId: number): Promise<never> {
+/** Runs the processor until SIGINT / SIGTERM; returns once the current event is stamped. */
+export async function cmdProcess(p: ProjectPaths, chainId: number): Promise<void> {
   const f = files(p);
   log.step(`Load configuration for chain ${chainId}`);
   const chain = loadChain(f.chains, chainId);
@@ -149,22 +220,21 @@ export async function cmdProcess(p: ProjectPaths, chainId: number): Promise<neve
   onShutdown(() => client.close());
   const store = new SystemStore(db);
   await assertNotRunning(store, chainId, 'processor');
+  const heartbeat = startHeartbeat(store, chainId, 'processor');
+  onShutdown(() => heartbeat.stop());
 
   const processor = new Processor({
     chain, pool: buildPool(chain), store, entities: new EntityStore(db, chainId), config,
   });
   await processor.init();
-  const server = await startServer({
-    port: resolvePort(process.env),
-    status: () => processor.status(),
-    lastLoopAt: () => processor.lastLoopAt(),
-  });
+  const server = await serveStatus('processor', () => processor.status(), () => processor.lastLoopAt());
   onShutdown(() => server.close());
   log.result(`status server on port ${server.port}`);
 
   process.title = `evm-indexer [processor] ${chainId}`;
   log.step(`Process chain ${chainId} (${chain.name})`);
-  return processor.run();
+  onStop(() => processor.stop());
+  await processor.run();
 }
 
 /**

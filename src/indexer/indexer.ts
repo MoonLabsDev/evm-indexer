@@ -54,6 +54,10 @@ export class Indexer {
   private currentBlock = 0;
   private indexBlock = 0;
   private lastLoop = 0;
+  /** true from a failed tick until the next tick succeeds: then no step refreshes lastLoop */
+  private failing = false;
+  private stopping = false;
+  private wake: (() => void) | null = null;
   private progress: { block: number; ms: number; lastLog: number } | null = null;
 
   constructor(deps: IndexerDeps) {
@@ -110,6 +114,7 @@ export class Indexer {
     const batch = backfill
       ? await this.scanners.backfill.scan(from, target - headThreshold)
       : await this.scanners.head.scan(from, target);
+    this.alive();
 
     let queue = batch.logs;
     let i = 0;
@@ -164,6 +169,7 @@ export class Indexer {
       const created = this.created;
       this.created = [];
       this.templateWrites = [];
+      this.alive();
 
       events.push({
         chainId, address, eventId: raw.topics[0].toLowerCase(), blockNumber: raw.blockNumber,
@@ -196,26 +202,51 @@ export class Indexer {
     await this.store.upsertTransactions([...txs.values()]);
     await this.store.upsertEvents(events);
     await this.store.setIndexed(chainId, batch.to);
+    for (const e of events) {
+      log.debug(`chain ${chainId}: stored ${e.source}.${e.event} at ${e.address} ${e.blockNumber}/${e.txIndex}/${e.logIndex}`);
+    }
+    this.alive();
     this.indexBlock = batch.to;
     this.reportProgress(batch.to, target);
     return 'worked';
   }
 
-  /** Runs forever; any error is logged and the same range is retried after `pollInterval`. */
-  async run(): Promise<never> {
-    for (;;) {
+  /**
+   * Runs until `stop()`; any error is logged and the same range is retried after `pollInterval`.
+   * A stop lets the current range finish (and be stored) before run() returns.
+   */
+  async run(): Promise<void> {
+    while (!this.stopping) {
       let wait: boolean;
       try {
         wait = (await this.tick()) === 'idle';
+        this.failing = false;
         this.lastLoop = Date.now();
       } catch (err) {
         const what = err instanceof AllRpcFailedError ? 'all RPCs failed' : 'indexing failed';
         log.error(`chain ${this.chain.chainId}: ${what}, retrying in ${this.chain.pollInterval} ms`, err);
+        this.failing = true;
         wait = true;
       }
       await this.beat();
-      if (wait) await this.sleep(this.chain.pollInterval);
+      if (wait && !this.stopping) await this.pause(this.chain.pollInterval);
     }
+  }
+
+  /** Asks run() to return after the current range; ends a pending sleep at once. */
+  stop(): void {
+    this.stopping = true;
+    this.wake?.();
+  }
+
+  private async pause(ms: number): Promise<void> {
+    await Promise.race([this.sleep(ms), new Promise<void>((resolve) => { this.wake = resolve; })]);
+    this.wake = null;
+  }
+
+  /** A step of a tick made progress: keeps /health green during long ticks, but not while ticks fail. */
+  private alive(): void {
+    if (!this.failing) this.lastLoop = Date.now();
   }
 
   /** Heartbeat on every loop iteration, failed or not; a failure here is only logged at debug level. */
@@ -231,7 +262,7 @@ export class Indexer {
     return { chainId: this.chain.chainId, name: this.chain.name, currentBlock: this.currentBlock, indexBlock: this.indexBlock };
   }
 
-  /** Time (ms) of the last successful loop iteration; 0 before the first one. */
+  /** Time (ms) of the last successful loop iteration or tick step; 0 before the first one. */
   lastLoopAt(): number {
     return this.lastLoop;
   }

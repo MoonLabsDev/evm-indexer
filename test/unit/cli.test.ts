@@ -2,8 +2,10 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } 
 import { PassThrough } from 'stream';
 import type { Db } from 'mongodb';
 import { startMongo } from '../helpers/mongo';
+import { createServer, type Server } from 'net';
 import {
-  askYesNo, assertNotRunning, cmdProcess, cmdReset, cmdSetRevision, connectFromEnv, resolveChainId, resolvePort,
+  askYesNo, assertNotRunning, cmdProcess, cmdReset, cmdSetRevision, connectFromEnv, isStopRequested, onStop,
+  requestStop, resolveChainId, resolvePort, serveStatus, startHeartbeat,
 } from '../../src/cli/commands';
 import { ConfigError } from '../../src/config/chains';
 import { SystemStore } from '../../src/store/system';
@@ -281,5 +283,74 @@ describe('askYesNo', () => {
 
   it('declines on immediate end of input', async () => {
     expect((await ask(null)).answer).toBe(false);
+  });
+});
+
+describe('startHeartbeat', () => {
+  it('writes the heartbeat at once and then on its timer, independent of any loop', async () => {
+    await store.init();
+    const spy = vi.spyOn(store, 'heartbeat');
+    const hb = startHeartbeat(store, 1, 'indexer', 20);
+    try {
+      expect(spy).toHaveBeenCalledTimes(1); // synchronously, before the first tick of the timer
+      await vi.waitFor(async () => expect(await store.isAlive(1, 'indexer')).toBe(true));
+      await vi.waitFor(() => expect(spy.mock.calls.length).toBeGreaterThanOrEqual(3), { timeout: 2000 });
+    } finally {
+      await hb.stop();
+    }
+  });
+
+  it('stop() ends the timer and clears the heartbeat: assertNotRunning and reset no longer refuse', async () => {
+    await store.init();
+    const hb = startHeartbeat(store, 1, 'processor', 20);
+    await vi.waitFor(async () => expect(await store.isAlive(1, 'processor')).toBe(true));
+    await expect(assertNotRunning(store, 1, 'processor')).rejects.toThrow(/already running/);
+    await hb.stop();
+    const spy = vi.spyOn(store, 'heartbeat');
+    await new Promise((r) => setTimeout(r, 60));
+    expect(spy).not.toHaveBeenCalled();
+    expect((await store.getChain(1)).processorHeartbeat).toBeNull();
+    await expect(assertNotRunning(store, 1, 'processor')).resolves.toBeUndefined();
+    expect(await cmdReset(db, { chainId: 1, yes: true })).toBe(true);
+  });
+
+  it('a failing heartbeat write is only logged at debug level and the timer keeps going', async () => {
+    await store.init();
+    const spy = vi.spyOn(store, 'heartbeat').mockRejectedValue(new Error('mongo down'));
+    const hb = startHeartbeat(store, 1, 'indexer', 20);
+    await vi.waitFor(() => expect(spy.mock.calls.length).toBeGreaterThanOrEqual(2), { timeout: 2000 });
+    await hb.stop();
+    expect(vi.mocked(console.error)).not.toHaveBeenCalled();
+  });
+});
+
+describe('serveStatus', () => {
+  it('names the port and the PORT rule when the port is in use', async () => {
+    const blocker: Server = createServer();
+    await new Promise<void>((r) => blocker.listen(0, r));
+    const port = (blocker.address() as { port: number }).port;
+    try {
+      await expect(serveStatus('processor', () => ({}), () => 0, { PORT: String(port) })).rejects.toThrow(
+        new RegExp(`port ${port} .*already in use.*index and process need different PORT values`),
+      );
+    } finally {
+      await new Promise<void>((r) => blocker.close(() => r()));
+    }
+  });
+});
+
+// Last in this file: a requested stop stays requested for the rest of the process.
+describe('requestStop', () => {
+  it('stops every registered loop once, and a loop registered afterwards at once', () => {
+    const a = vi.fn();
+    onStop(a);
+    expect(isStopRequested()).toBe(false);
+    expect(requestStop()).toBe(true);
+    expect(requestStop()).toBe(false);
+    expect(a).toHaveBeenCalledTimes(1);
+    const late = vi.fn();
+    onStop(late);
+    expect(late).toHaveBeenCalledTimes(1);
+    expect(isStopRequested()).toBe(true);
   });
 });
