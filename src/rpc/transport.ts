@@ -53,8 +53,16 @@ export class HttpTransport implements RpcTransport {
         body: JSON.stringify(body),
         signal: controller.signal,
       });
-      if (!res.ok) throw new RpcError(await res.text(), undefined, res.status);
-      return await res.json();
+      if (!res.ok) {
+        const errText = (await res.text()).trim();
+        throw new RpcError(`HTTP ${res.status}${errText ? `: ${errText}` : ''}`, undefined, res.status);
+      }
+      const text = await res.text();
+      try {
+        return JSON.parse(text);
+      } catch {
+        throw new RpcError('fetch failed: response is not valid JSON', undefined, 502);
+      }
     } finally {
       clearTimeout(timer);
     }

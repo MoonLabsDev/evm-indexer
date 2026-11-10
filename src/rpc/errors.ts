@@ -35,12 +35,16 @@ export function classifyError(err: unknown): ErrorKind {
   const cause = e.cause as ErrorLike | undefined;
   const causeCode = typeof cause?.code === 'string' ? cause.code : '';
 
+  // HTTP status first: a 429/5xx body may mention anything
+  if (status === 429) return 'rateLimit';
+  if (status !== undefined && status >= 500) return 'network';
   if (e.name === 'AbortError' || /timeout/i.test(msg)) return 'timeout';
-  if (status === 429 || /rate limit|too many requests/i.test(msg)) return 'rateLimit';
+  // reverts are final, even when their text contains words like "exceeds"
+  if (code === 3 || /revert/i.test(msg)) return 'fatal';
+  if (/rate limit|too many requests/i.test(msg)) return 'rateLimit';
   if (code === -32005 || /too large|too many results|exceed|limit.*range|response size/i.test(msg)) return 'tooLarge';
   if (code === -32601 || /method not found|not supported/i.test(msg)) return 'unsupported';
   if (
-    (status !== undefined && status >= 500) ||
     NETWORK_CODES.includes(strCode) || NETWORK_CODES.includes(causeCode) ||
     /ECONNRESET|ENOTFOUND|fetch failed/i.test(msg)
   ) return 'network';

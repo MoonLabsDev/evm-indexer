@@ -114,11 +114,22 @@ describe('RpcPool', () => {
   });
 
   it('at min size a too-large error falls to the ladder and the next RPC', async () => {
-    const { a, b, pool } = setup({ logRange: { start: 1, min: 1, max: 1 } });
+    const { a, b, pool, sleeps } = setup({ logRange: { start: 1, min: 1, max: 1 } });
     a.on('eth_getLogs', () => { throw new RpcError('response size exceeded', -32005); });
     b.on('eth_getLogs', () => []);
     expect(await pool.getLogs(filter)).toEqual([]);
+    expect(a.calls.length).toBe(1);
     expect(b.calls.length).toBe(1);
+    expect(sleeps).toEqual([]);
+  });
+
+  it('does not fail over on a revert whose text contains "exceeds"', async () => {
+    const { a, b, pool, sleeps } = setup();
+    a.on('eth_call', () => { throw new RpcError('execution reverted: transfer amount exceeds balance', 3); });
+    await expect(pool.ethCall('0xTo', '0xdata', 5)).rejects.toThrow('exceeds balance');
+    expect(a.calls.length).toBe(1);
+    expect(b.calls.length).toBe(0);
+    expect(sleeps).toEqual([]);
   });
 
   it('keeps learned sizes per RPC', async () => {
