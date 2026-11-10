@@ -409,4 +409,52 @@ describe('Processor', () => {
     expect(failLines[0]).toContain('10/0/4');
     expect(errors.some((m) => m.includes('kaput'))).toBe(true);
   });
+
+  it('run() keeps the heartbeat fresh while the tick keeps failing, without touching lastLoopAt', async () => {
+    await insert([{ b: 10, t: 0, l: 0 }]);
+    await store.setIndexed(CHAIN_ID, 20);
+    hooks.onTransfer = async () => { throw new Error('kaput'); };
+    const stop = new Error('stop');
+    let sleeps = 0;
+    const { processor } = setup({
+      sleep: async () => {
+        sleeps += 1;
+        if (sleeps === 3) throw stop;
+      },
+    });
+    await processor.init();
+    await store.setProcessed(CHAIN_ID, 0);
+    await db.collection('sys_chains').updateOne({ chainId: CHAIN_ID }, { $set: { processorHeartbeat: null } });
+    await expect(processor.run()).rejects.toBe(stop);
+    expect(processor.lastLoopAt()).toBe(0);
+    expect(await store.isAlive(CHAIN_ID, 'processor')).toBe(true);
+  });
+
+  it('run() logs a failing heartbeat at debug level only and still reports the tick error', async () => {
+    await insert([{ b: 10, t: 0, l: 0 }]);
+    await store.setIndexed(CHAIN_ID, 20);
+    hooks.onTransfer = async () => { throw new Error('kaput'); };
+    const stop = new Error('stop');
+    const { processor } = setup({ sleep: async () => { throw stop; } });
+    await processor.init();
+    vi.spyOn(store, 'heartbeat').mockRejectedValue(new Error('mongo down'));
+    await expect(processor.run()).rejects.toBe(stop);
+    const errors = vi.mocked(console.error).mock.calls.flat().join('\n');
+    expect(errors).toContain('kaput');
+    expect(errors).not.toContain('mongo down');
+  });
+
+  it('a failing setProcessed after a callback error does not replace the callback error', async () => {
+    await insert([{ b: 10, t: 0, l: 0 }, { b: 11, t: 0, l: 0 }]);
+    await store.setIndexed(CHAIN_ID, 20);
+    hooks.onTransfer = async (e) => {
+      if (e.blockNumber === 11) throw new Error('boom');
+      await bump();
+    };
+    const { processor } = setup();
+    await processor.init();
+    vi.spyOn(store, 'setProcessed').mockRejectedValue(new Error('mongo down'));
+    await expect(processor.tick()).rejects.toThrow('boom');
+    expect(await stamps()).toEqual([0, -1]);
+  });
 });

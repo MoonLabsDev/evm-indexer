@@ -598,4 +598,37 @@ describe('Indexer', () => {
     expect(ctx.indexer.lastLoopAt()).toBeGreaterThan(0); // the idle tick did
     expect(vi.mocked(console.error).mock.calls.flat().join('\n')).toMatch(/all RPC endpoints failed/);
   });
+
+  it('run() keeps the heartbeat fresh while the tick keeps failing, without touching lastLoopAt', async () => {
+    class Stop extends Error {}
+    let sleeps = 0;
+    const sleep = vi.fn(async () => {
+      sleeps += 1;
+      if (sleeps === 3) throw new Stop();
+    });
+    const ctx = setup(new FakeChain(), { head: 4, sleep });
+    await ctx.indexer.init();
+    ctx.poolObj.getBlockNumber.mockRejectedValue(new AllRpcFailedError());
+    expect((await ctx.store.getChain(CHAIN_ID)).indexerHeartbeat).toBeNull();
+    await expect(ctx.indexer.run()).rejects.toBeInstanceOf(Stop);
+    expect(ctx.indexer.lastLoopAt()).toBe(0);
+    expect(await ctx.store.isAlive(CHAIN_ID, 'indexer')).toBe(true);
+  });
+
+  it('run() logs a failing heartbeat at debug level only and still reports the tick error', async () => {
+    class Stop extends Error {}
+    let sleeps = 0;
+    const sleep = vi.fn(async () => {
+      sleeps += 1;
+      if (sleeps === 1) throw new Stop();
+    });
+    const ctx = setup(new FakeChain(), { head: 4, sleep });
+    await ctx.indexer.init();
+    ctx.poolObj.getBlockNumber.mockRejectedValue(new AllRpcFailedError());
+    vi.spyOn(ctx.store, 'heartbeat').mockRejectedValue(new Error('mongo down'));
+    await expect(ctx.indexer.run()).rejects.toBeInstanceOf(Stop);
+    const errors = vi.mocked(console.error).mock.calls.flat().join('\n');
+    expect(errors).toMatch(/all RPC endpoints failed/);
+    expect(errors).not.toMatch(/mongo down/);
+  });
 });

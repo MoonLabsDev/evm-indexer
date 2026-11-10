@@ -105,12 +105,11 @@ export class Processor {
         last = doc;
       }
       this.failedEvent = null;
-    } finally {
-      if (last) {
-        await this.store.setProcessed(chainId, last.blockNumber);
-        this.processBlock = last.blockNumber;
-      }
+    } catch (err) {
+      await this.recordProgress(last, true);
+      throw err;
     }
+    await this.recordProgress(last, false);
     return 'worked';
   }
 
@@ -127,7 +126,32 @@ export class Processor {
         log.error(`chain ${chainId}: processing failed${where}, retrying in ${pollInterval} ms`, err);
         wait = true;
       }
+      await this.beat();
       if (wait) await this.sleep(pollInterval);
+    }
+  }
+
+  /**
+   * Stores how far the batch got. After a callback error a failure here is only logged, so it
+   * never replaces the callback's error.
+   */
+  private async recordProgress(last: EventDoc | null, swallow: boolean): Promise<void> {
+    if (!last) return;
+    try {
+      await this.store.setProcessed(this.chain.chainId, last.blockNumber);
+      this.processBlock = last.blockNumber;
+    } catch (err) {
+      if (!swallow) throw err;
+      log.debug(`chain ${this.chain.chainId}: setProcessed failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  /** Heartbeat on every loop iteration, failed or not; a failure here is only logged at debug level. */
+  private async beat(): Promise<void> {
+    try {
+      await this.store.heartbeat(this.chain.chainId, 'processor');
+    } catch (err) {
+      log.debug(`chain ${this.chain.chainId}: heartbeat failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 

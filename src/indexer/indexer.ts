@@ -199,7 +199,17 @@ export class Indexer {
         log.error(`chain ${this.chain.chainId}: ${what}, retrying in ${this.chain.pollInterval} ms`, err);
         wait = true;
       }
+      await this.beat();
       if (wait) await this.sleep(this.chain.pollInterval);
+    }
+  }
+
+  /** Heartbeat on every loop iteration, failed or not; a failure here is only logged at debug level. */
+  private async beat(): Promise<void> {
+    try {
+      await this.store.heartbeat(this.chain.chainId, 'indexer');
+    } catch (err) {
+      log.debug(`chain ${this.chain.chainId}: heartbeat failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
