@@ -16,8 +16,9 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "vitest run",
-    "test:unit": "vitest run test/unit"
+    "test": "npm run test:unit && npm run test:integration",
+    "test:unit": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.mts"
   },
   "license": "UNLICENSED",
   "dependencies": {

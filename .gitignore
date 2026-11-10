@@ -4,3 +4,8 @@ dist/
 .worktree/
 .superpowers/
 test/.tmp/
+test/fixture/artifacts/
+test/fixture/cache/
+test/fixture/project/abis/
+test/fixture/project/generated/
+test/fixture/project/addresses.json

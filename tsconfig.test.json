@@ -5,5 +5,5 @@
     "rootDir": "."
   },
   "include": ["src", "test"],
-  "exclude": ["test/.tmp"]
+  "exclude": ["test/.tmp", "test/fixture/project"]
 }
