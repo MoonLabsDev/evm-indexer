@@ -196,11 +196,30 @@ export function askYesNo(
   });
 }
 
-/** Deletes one chain's data (`chainId`) or everything. Returns false when the confirmation was declined. */
+/**
+ * Deletes one chain's data (`chainId`) or everything. Returns false when the confirmation was declined.
+ * Throws, deleting nothing, when an indexer or processor of an affected chain has a fresh heartbeat,
+ * unless `force` is set: a running indexer keeps its in-memory template registry and would never
+ * index the wiped template addresses again.
+ */
 export async function cmdReset(
   db: Db,
-  opts: { chainId?: number; yes: boolean; confirm?: () => Promise<boolean> },
+  opts: { chainId?: number; yes: boolean; force?: boolean; confirm?: () => Promise<boolean> },
 ): Promise<boolean> {
+  const store = new SystemStore(db);
+  if (opts.force !== true) {
+    const chains = opts.chainId === undefined ? await store.listChains() : [opts.chainId];
+    for (const chainId of chains) {
+      for (const kind of ['indexer', 'processor'] as const) {
+        if (await store.isAlive(chainId, kind)) {
+          throw new Error(
+            `the ${kind} of chain ${chainId} is still running (its heartbeat is younger than 60 s); ` +
+              'stop it and the processor before a reset, or pass --force',
+          );
+        }
+      }
+    }
+  }
   const what = opts.chainId === undefined
     ? 'every sys_* and ent_* collection in this database'
     : `all data of chain ${opts.chainId}`;
@@ -208,7 +227,6 @@ export async function cmdReset(
     const confirm = opts.confirm ?? (() => askYesNo(`Type "yes" to delete ${what}: `));
     if (!(await confirm())) return false;
   }
-  const store = new SystemStore(db);
   if (opts.chainId === undefined) await store.resetAll();
   else await store.resetChain(opts.chainId);
   return true;

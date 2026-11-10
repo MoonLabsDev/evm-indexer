@@ -23,7 +23,7 @@ beforeEach(async () => {
 });
 afterEach(() => { vi.restoreAllMocks(); });
 
-/** Fills chains 1 and 2 with one document in each sys_ and ent_ collection. */
+/** Fills chains 1 and 2 with one document in each sys_ and ent_ collection; no process is alive afterwards. */
 async function seed(): Promise<void> {
   await store.init();
   for (const chainId of [1, 2]) {
@@ -35,6 +35,12 @@ async function seed(): Promise<void> {
     await db.collection('sys_templates').insertOne({ chainId, template: 'T', address: `0x${chainId}` });
     await db.collection(`ent_${chainId}_Pool`).insertOne({ _id: 'a' as never });
   }
+  await db.collection('sys_chains').updateMany({}, { $set: { indexerHeartbeat: null, processorHeartbeat: null } });
+}
+
+/** Moves one heartbeat back in time, so it counts as stale. */
+async function ageHeartbeat(chainId: number, kind: 'indexer' | 'processor', ms: number): Promise<void> {
+  await db.collection('sys_chains').updateOne({ chainId }, { $set: { [`${kind}Heartbeat`]: new Date(Date.now() - ms) } });
 }
 
 const count = (name: string, filter: object = {}) => db.collection(name).countDocuments(filter);
@@ -144,6 +150,62 @@ describe('cmdReset', () => {
     await seed();
     expect(await cmdReset(db, { chainId: 2, yes: false, confirm: async () => true })).toBe(true);
     expect(await count('sys_events', { chainId: 2 })).toBe(0);
+  });
+});
+
+describe('cmdReset under a live process', () => {
+  it('refuses with a fresh indexer heartbeat, names kind and chain, deletes nothing', async () => {
+    await seed();
+    await store.heartbeat(1, 'indexer');
+    const err = await cmdReset(db, { chainId: 1, yes: true }).then(() => null, (e: Error) => e);
+    expect(err?.message).toMatch(/still running/);
+    expect(err?.message).toContain('indexer of chain 1');
+    expect(err?.message).toContain('--force');
+    expect(await count('sys_events')).toBe(2);
+    expect(await count('sys_templates', { chainId: 1 })).toBe(1);
+    expect(await count('ent_1_Pool')).toBe(1);
+  });
+
+  it('refuses before asking for confirmation', async () => {
+    await seed();
+    await store.heartbeat(1, 'processor');
+    const confirm = vi.fn(async () => true);
+    await expect(cmdReset(db, { chainId: 1, yes: false, confirm })).rejects.toThrow(/processor of chain 1 is still running/);
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it('resets a live chain with force', async () => {
+    await seed();
+    await store.heartbeat(1, 'indexer');
+    expect(await cmdReset(db, { chainId: 1, yes: true, force: true })).toBe(true);
+    expect(await count('sys_events', { chainId: 1 })).toBe(0);
+    expect(await count('sys_templates', { chainId: 1 })).toBe(0);
+  });
+
+  it('is not blocked by a stale heartbeat', async () => {
+    await seed();
+    await ageHeartbeat(1, 'indexer', 61_000);
+    await ageHeartbeat(1, 'processor', 120_000);
+    expect(await cmdReset(db, { chainId: 1, yes: true })).toBe(true);
+    expect(await count('sys_events', { chainId: 1 })).toBe(0);
+  });
+
+  it('blocks a full reset when a processor on any chain is alive', async () => {
+    await seed();
+    await store.heartbeat(2, 'processor');
+    await expect(cmdReset(db, { yes: true })).rejects.toThrow(/processor of chain 2 is still running/);
+    expect(await count('sys_events')).toBe(2);
+    expect(await cmdReset(db, { yes: true, force: true })).toBe(true);
+    expect(await count('sys_events')).toBe(0);
+  });
+
+  it('does not let another chain block reset --chain', async () => {
+    await seed();
+    await store.heartbeat(1, 'indexer');
+    await store.heartbeat(1, 'processor');
+    expect(await cmdReset(db, { chainId: 2, yes: true })).toBe(true);
+    expect(await count('sys_events', { chainId: 2 })).toBe(0);
+    expect(await count('sys_events', { chainId: 1 })).toBe(1);
   });
 });
 

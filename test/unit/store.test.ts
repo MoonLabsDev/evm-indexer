@@ -134,6 +134,13 @@ describe('SystemStore', () => {
     expect(await sys.isAlive(1, 'processor')).toBe(true);
   });
 
+  it('lists the chains that have a row', async () => {
+    expect(await sys.listChains()).toEqual([]);
+    await sys.getChain(5);
+    await sys.setIndexed(2, 1);
+    expect(await sys.listChains()).toEqual([2, 5]);
+  });
+
   it('resetChain clears one chain only', async () => {
     const e1 = new EntityStore(db, 1);
     const e2 = new EntityStore(db, 2);

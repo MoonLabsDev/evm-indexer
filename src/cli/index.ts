@@ -61,11 +61,12 @@ export function buildProgram(): Command {
   program.command('reset').description("delete all data, or only one chain's data with --chain")
     .option('--chain <id>', 'only this chain (default: everything; CHAIN_ID is not used here)')
     .option('--yes', 'skip the confirmation')
-    .action(async (o: { chain?: string; yes?: boolean }) => {
+    .option('--force', 'reset even when an indexer or processor looks alive (fresh heartbeat)')
+    .action(async (o: { chain?: string; yes?: boolean; force?: boolean }) => {
       const chainId = o.chain === undefined ? undefined : resolveChainId(o.chain, {});
       const { client, db } = await connectFromEnv();
       try {
-        const done = await cmdReset(db, { chainId, yes: o.yes === true });
+        const done = await cmdReset(db, { chainId, yes: o.yes === true, force: o.force === true });
         log.result(done ? 'reset done' : 'cancelled');
       } finally {
         await client.close();

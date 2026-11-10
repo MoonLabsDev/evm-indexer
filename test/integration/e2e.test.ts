@@ -304,8 +304,14 @@ describe('end-to-end against a hardhat node', () => {
     expect(await entityDocs()).toEqual(entitiesAfterHead);
   });
 
-  it('6: reset --chain returns the chain to the empty state', async () => {
-    expect(await cmdReset(db, { chainId: CHAIN_ID, yes: true })).toBe(true);
+  it('6: reset --chain is refused under a fresh heartbeat; with force it returns the chain to the empty state', async () => {
+    // The loops above wrote heartbeats just now: a reset would wipe templates under a "running" indexer.
+    expect(await store.isAlive(CHAIN_ID, 'indexer')).toBe(true);
+    await expect(cmdReset(db, { chainId: CHAIN_ID, yes: true })).rejects.toThrow(/still running/);
+    expect(await events().countDocuments({ chainId: CHAIN_ID })).toBe(eventCountAfterHead);
+    expect(await db.collection('sys_templates').countDocuments({ chainId: CHAIN_ID })).toBe(3);
+
+    expect(await cmdReset(db, { chainId: CHAIN_ID, yes: true, force: true })).toBe(true);
     expect(await events().countDocuments({ chainId: CHAIN_ID })).toBe(0);
     expect(await db.collection('sys_transactions').countDocuments({ chainId: CHAIN_ID })).toBe(0);
     expect(await db.collection('sys_templates').countDocuments({ chainId: CHAIN_ID })).toBe(0);
@@ -336,7 +342,7 @@ describe('end-to-end against a hardhat node', () => {
   });
 
   it('8: reset without --chain drops every sys_* and ent_* collection', async () => {
-    expect(await cmdReset(db, { yes: true })).toBe(true);
+    expect(await cmdReset(db, { yes: true, force: true })).toBe(true);
     const names = (await db.listCollections({}, { nameOnly: true }).toArray()).map((c) => c.name);
     expect(names.filter((n) => n.startsWith('sys_') || n.startsWith('ent_'))).toEqual([]);
   });

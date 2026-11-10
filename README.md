@@ -215,7 +215,7 @@ export async function handleSwap(e: PoolPairSwapEvent) {
 | `evm-indexer index --chain <id>` | Run the indexer for one chain |
 | `evm-indexer process --chain <id>` | Run the processor for one chain |
 | `evm-indexer set-revision --chain <id> [--revision <n>]` | Set `currentRevisionId` (default: current + 1) and print it. The processor drops the chain's entities and replays |
-| `evm-indexer reset [--chain <id>] [--yes]` | Without `--chain`: drop every `sys_*` and `ent_*` collection. With `--chain`: delete that chain's events, transactions and templates, drop its entities, set its counters to 0. Asks for `yes` unless `--yes` is given |
+| `evm-indexer reset [--chain <id>] [--yes] [--force]` | Without `--chain`: drop every `sys_*` and `ent_*` collection. With `--chain`: delete that chain's events, transactions and templates, drop its entities, set its counters to 0. Asks for `yes` unless `--yes` is given. Refuses (deleting nothing) while an indexer or processor of an affected chain has a heartbeat younger than 60 s, that is the given chain, or every chain with a `sys_chains` row; `--force` skips this check, `--yes` does not |
 
 Global options: `--debug` (per-event and per-RPC-retry log lines) and `--root <dir>`.
 `--chain` can come from `CHAIN_ID`; `reset` only reads `--chain`. `index` and `process` refuse to
@@ -246,7 +246,8 @@ Run the indexer and the processor of one chain on different ports.
 ## Operational notes
 
 - **Changing a process callback**: run `evm-indexer set-revision --chain <id>`. The running processor picks it up, drops the chain's entities and replays every stored event. No re-indexing.
-- **Changing an index callback** (or anything that decides which addresses and events are scanned): run `evm-indexer reset --chain <id>` and index again. Then run the processor.
+- **Changing an index callback** (or anything that decides which addresses and events are scanned): stop the indexer and the processor of that chain, run `evm-indexer reset --chain <id>` and index again. Then run the processor.
+- **Stop the indexer and processor before a reset.** A running indexer keeps its template addresses in memory; a reset wipes them from the database, so after its next restart they would never be indexed again. `reset` therefore refuses while a heartbeat is fresh (after a crash, wait up to a minute); `--force` overrides it for the case that the heartbeat is stale-looking wrong or the process is known to be gone.
 - **Archive RPC**: contract reads in callbacks run at the event's block. A processor that is far behind the head needs an archive node.
 - **Templates**: an address added with `Template.create` is indexed only from after the event that created it. Earlier logs of that address are not read.
 - **Idempotence**: a callback is stamped as done after it returns. If the processor dies between a callback's saves and the stamp, that event runs again on restart, so a callback like `balance += amount` can count once too often. Replay with `set-revision` to repair.

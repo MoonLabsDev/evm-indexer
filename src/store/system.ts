@@ -59,6 +59,12 @@ export class SystemStore {
     return doc as unknown as ChainState;
   }
 
+  /** Chain ids that have a `sys_chains` row, ascending. */
+  async listChains(): Promise<number[]> {
+    const docs = await this.chains.find({}, { projection: { _id: 0, chainId: 1 } }).sort({ chainId: 1 }).toArray();
+    return docs.map((d) => d.chainId as number);
+  }
+
   private async setFields(chainId: number, fields: Document): Promise<void> {
     await this.ensureChain(chainId);
     await this.chains.updateOne({ chainId }, { $set: fields });
