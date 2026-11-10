@@ -285,6 +285,30 @@ describe('Processor', () => {
     expect(processor.status().revisionId).toBe(1);
   });
 
+  it('recovers from a crash between dropEntities and setEntityRevision', async () => {
+    // revision 1 had started: entities dropped (a stale one is back from the old revision's writes
+    // before the crash), two of three events already stamped 1, but entityRevisionId is still 0
+    await insert([{ b: 10, t: 0, l: 0 }, { b: 11, t: 0, l: 0 }, { b: 12, t: 0, l: 0 }]);
+    await store.setIndexed(CHAIN_ID, 20);
+    await store.setRevision(CHAIN_ID, 1);
+    await db.collection('sys_events').updateMany({ blockNumber: { $lte: 11 } }, { $set: { processRevisionId: 1 } });
+    await db.collection(`ent_${CHAIN_ID}_Counter`).insertOne({ _id: 'total' as never, count: 99 });
+    await db.collection(`ent_${CHAIN_ID}_Stale`).insertOne({ _id: 'x' as never });
+    expect((await store.getChain(CHAIN_ID)).entityRevisionId).toBe(0);
+
+    const { processor } = setup();
+    await processor.init();
+    while ((await processor.tick()) === 'worked') { /* drain */ }
+
+    expect(hooks.seen).toEqual(['10/0/0', '11/0/0', '12/0/0']);
+    expect(await counter()).toBe(3);
+    const names = (await db.listCollections({}, { nameOnly: true }).toArray()).map((c) => c.name);
+    expect(names).not.toContain(`ent_${CHAIN_ID}_Stale`);
+    expect(await stamps()).toEqual([1, 1, 1]);
+    const state = await store.getChain(CHAIN_ID);
+    expect([state.entityRevisionId, state.currentRevisionId, state.processedBlock]).toEqual([1, 1, 20]);
+  });
+
   it('picks up a revision change between ticks without a new Processor', async () => {
     await insert([{ b: 10, t: 0, l: 0 }]);
     await store.setIndexed(CHAIN_ID, 20);

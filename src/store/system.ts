@@ -144,6 +144,11 @@ export class SystemStore {
     await this.events.updateOne(eventKey(key), { $set: { processRevisionId: revisionId } });
   }
 
+  /** Marks the chain's events stamped with `revisionId` as unprocessed again. */
+  async unstampRevision(chainId: number, revisionId: number): Promise<void> {
+    await this.events.updateMany({ chainId, processRevisionId: revisionId }, { $set: { processRevisionId: -1 } });
+  }
+
   async listTemplates(chainId: number): Promise<TemplateDoc[]> {
     const docs = await this.templates.find({ chainId }, { projection: { _id: 0 } }).toArray();
     return docs as unknown as TemplateDoc[];

@@ -88,10 +88,19 @@ describe('cmdSetRevision', () => {
     expect((await store.getChain(1)).currentRevisionId).toBe(2);
   });
 
-  it('sets an explicit revision', async () => {
+  it('sets an explicit revision above the current one', async () => {
     expect(await cmdSetRevision(db, 1, 7)).toBe(7);
     expect((await store.getChain(1)).currentRevisionId).toBe(7);
-    expect(await cmdSetRevision(db, 1, 0)).toBe(0);
+    expect(await cmdSetRevision(db, 1, 8)).toBe(8);
+  });
+
+  it('rejects a revision at or below the current one and changes nothing', async () => {
+    await cmdSetRevision(db, 1, 5);
+    // events still stamped with an old id would never be replayed
+    await expect(cmdSetRevision(db, 1, 3)).rejects.toThrow(/revision 3 .*current revision 5.*only move forward/);
+    await expect(cmdSetRevision(db, 1, 5)).rejects.toThrow(/current revision 5/);
+    await expect(cmdSetRevision(db, 1, 0)).rejects.toThrow(ConfigError);
+    expect((await store.getChain(1)).currentRevisionId).toBe(5);
   });
 
   it('rejects a negative or non-integer revision and changes nothing', async () => {

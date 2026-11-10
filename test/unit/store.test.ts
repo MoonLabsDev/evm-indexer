@@ -108,6 +108,18 @@ describe('SystemStore', () => {
     expect(await sys.getChain(1)).toMatchObject({ entityRevisionId: 3, processedBlock: 0 });
   });
 
+  it('unstampRevision marks only the stamps of that revision and chain unprocessed', async () => {
+    await sys.upsertEvents([ev(10, 0, 0), ev(11, 0, 0), ev(12, 0, 0)]);
+    const [a, b, c] = await sys.nextUnprocessed(1, 1, 100, 10);
+    await sys.stampEvent(a, 1);
+    await sys.stampEvent(b, 0);
+    await sys.unstampRevision(1, 1);
+    await sys.unstampRevision(2, 0);
+    const docs = await db.collection('sys_events').find({}).sort({ blockNumber: 1 }).toArray();
+    expect(docs.map((d) => d.processRevisionId)).toEqual([-1, 0, -1]);
+    expect(c.blockNumber).toBe(12);
+  });
+
   it('stores and reads transactions', async () => {
     await sys.upsertTransactions([txDoc()]);
     await sys.upsertTransactions([txDoc()]);

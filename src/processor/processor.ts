@@ -82,7 +82,10 @@ export class Processor {
     this.indexBlock = state.indexedBlock;
     this.processBlock = state.processedBlock;
     if (state.entityRevisionId !== revision) {
+      // Each step is idempotent, so a crash in between only repeats them. Stamps that already carry
+      // the new id belong to entities that were just dropped: clear them so those events replay.
       await this.store.dropEntities(chainId);
+      await this.store.unstampRevision(chainId, revision);
       await this.store.setEntityRevision(chainId, revision);
       this.processBlock = 0;
       log.step(`chain ${chainId}: revision ${revision}, entities dropped, replaying all events`);

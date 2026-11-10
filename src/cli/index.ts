@@ -43,7 +43,7 @@ export function buildProgram(): Command {
 
   program.command('set-revision').description('set the revision of a chain (default: current + 1); the processor wipes entities and replays')
     .option('--chain <id>', 'chain id (default: CHAIN_ID)')
-    .option('--revision <n>', 'revision id to set')
+    .option('--revision <n>', 'revision id to set; must be above the current one')
     .action(async (o: { chain?: string; revision?: string }) => {
       const chainId = chainOf(o.chain);
       if (o.revision !== undefined && !/^\d+$/.test(o.revision)) {

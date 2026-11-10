@@ -167,13 +167,23 @@ export async function cmdProcess(p: ProjectPaths, chainId: number): Promise<neve
   return processor.run();
 }
 
-/** Sets `currentRevisionId` (default: current + 1) and returns it. The processor wipes and replays. */
+/**
+ * Sets `currentRevisionId` (default: current + 1) and returns it. The processor wipes and replays.
+ * Revisions only move forward: events still stamped with an older id would never be replayed.
+ */
 export async function cmdSetRevision(db: Db, chainId: number, revision?: number): Promise<number> {
   if (revision !== undefined && (!Number.isSafeInteger(revision) || revision < 0)) {
     throw new ConfigError(`invalid revision ${revision}: expected an integer >= 0`);
   }
   const store = new SystemStore(db);
-  const next = revision ?? (await store.getChain(chainId)).currentRevisionId + 1;
+  const current = (await store.getChain(chainId)).currentRevisionId;
+  if (revision !== undefined && revision <= current) {
+    throw new ConfigError(
+      `revision ${revision} is not above the current revision ${current} of chain ${chainId}; ` +
+        'revisions only move forward (events stamped with an older id would not be replayed)',
+    );
+  }
+  const next = revision ?? current + 1;
   await store.setRevision(chainId, next);
   return next;
 }
