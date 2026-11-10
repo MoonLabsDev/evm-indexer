@@ -301,7 +301,8 @@ describe('Indexer', () => {
     const a = setup(new FakeChain(), { head: 65, statics: [{ source: 'Factory', address: F, block: 1 }] });
     await a.indexer.init();
     await a.indexer.tick();
-    expect(a.backfill.calls).toEqual([[1, 65]]);
+    // backfill stops headThreshold blocks before the target (see the cap test below)
+    expect(a.backfill.calls).toEqual([[1, 1]]);
     expect(a.head.calls).toEqual([]);
 
     await db.dropDatabase();
@@ -310,6 +311,27 @@ describe('Indexer', () => {
     await b.indexer.tick();
     expect(b.head.calls).toEqual([[1, 64]]);
     expect(b.backfill.calls).toEqual([]);
+  });
+
+  it('caps backfill at target - headThreshold and leaves the last headThreshold blocks to head mode', async () => {
+    // eth_getLogs up to the head of a lagging node can return an empty tail without an error
+    const fake = new FakeChain();
+    fake.created(P, 150, 0, 0);
+    fake.swap(P, 7n, 290, 0, 0);
+    const { indexer, backfill, head, store } = setup(fake, {
+      head: 300, range: 1000, statics: [{ source: 'Factory', address: F, block: 100 }],
+    });
+    await indexer.init();
+    await indexer.tick();
+    expect(backfill.calls).toEqual([[100, 236]]);
+    expect((await store.getChain(CHAIN_ID)).indexedBlock).toBe(236);
+    expect(head.calls).toEqual([]);
+
+    await indexer.tick();
+    expect(head.calls).toEqual([[237, 300]]);
+    expect(backfill.calls).toHaveLength(1);
+    expect((await store.getChain(CHAIN_ID)).indexedBlock).toBe(300);
+    expect((await eventsSorted()).map((e) => e.blockNumber)).toEqual([150, 290]);
   });
 
   it('is idle when from > target: no scan, heartbeat written', async () => {

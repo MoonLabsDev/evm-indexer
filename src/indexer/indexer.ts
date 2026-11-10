@@ -101,8 +101,13 @@ export class Indexer {
       return 'idle';
     }
 
-    const scanner = target - from + 1 > headThreshold ? this.scanners.backfill : this.scanners.head;
-    const batch = await scanner.scan(from, target);
+    // Backfill stops headThreshold blocks short of the target: eth_getLogs up to the head of a lagging
+    // (load-balanced) node can answer an empty tail without an error. Head mode, which checks for
+    // missing blocks and receipts, covers the last headThreshold blocks.
+    const backfill = target - from + 1 > headThreshold;
+    const batch = backfill
+      ? await this.scanners.backfill.scan(from, target - headThreshold)
+      : await this.scanners.head.scan(from, target);
 
     let queue = batch.logs;
     let i = 0;
