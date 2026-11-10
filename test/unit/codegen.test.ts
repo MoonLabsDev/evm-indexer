@@ -31,8 +31,8 @@ describe('emitEntity', () => {
   it('emits the pinned shape', () => {
     const src = emitEntity('Pool', parseSchema(schema).Pool, 'evm-indexer');
     expect(src).toContain("import { BaseEntity } from 'evm-indexer';");
-    expect(src).toContain("import type { FieldSpec, Timestamp } from 'evm-indexer';");
-    expect(src).toContain("import type Decimal from 'decimal.js';");
+    expect(src).toContain("import type { FieldSpec, Timestamp, Decimal } from 'evm-indexer';");
+    expect(src).not.toContain('decimal.js');
     expect(src).toContain("import { Token } from './Token';");
     expect(src).not.toContain("from './Pool'");
     expect(src).toContain('export class Pool extends BaseEntity');
@@ -58,6 +58,12 @@ describe('emitEntity imports', () => {
     expect(src).not.toContain('Decimal');
     expect(src).not.toContain('Timestamp');
     expect(src).toContain("import type { FieldSpec } from 'evm-indexer';");
+  });
+
+  it('imports Decimal from the runtime, never from decimal.js', () => {
+    const src = emitEntity('Money', parseSchema({ Money: { amount: 'decimal' } }).Money, 'evm-indexer');
+    expect(src).toContain("import type { FieldSpec, Decimal } from 'evm-indexer';");
+    expect(src).not.toContain('decimal.js');
   });
 });
 
