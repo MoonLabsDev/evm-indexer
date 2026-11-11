@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { describe, it, expect, afterAll } from 'vitest';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parseChains, loadChain, ConfigError } from '../../src/config/chains';
@@ -46,6 +46,7 @@ describe('parseAddresses', () => {
 
 describe('file loaders', () => {
   const dir = mkdtempSync(join(tmpdir(), 'evm-cfg-'));
+  afterAll(() => { rmSync(dir, { recursive: true, force: true }); });
   const indexSrc = JSON.stringify(resolve(__dirname, '../../src/index.ts'));
   const write = (name: string, text: string): string => {
     const p = join(dir, name);
@@ -81,7 +82,7 @@ export default defineChains(${body});
   });
   it('requires the default export to be tagged for its kind', () => {
     const untagged = write('untagged.ts', "export default { 1: { name: 'eth', rpc: ['http://x'] } };\n");
-    expect(() => loadChain(untagged, 1)).toThrow(/must default-export the result of defineChains\(\)/);
+    expect(() => loadChain(untagged, 1)).toThrow(/untagged\.ts.*must default-export the result of defineChains\(\)/);
     const wrong = write('wrong.ts', "export default { __evmIndexerConfig: 'schema', value: {} };\n");
     expect(() => loadChain(wrong, 1)).toThrow(/must default-export the result of defineChains\(\)/);
     expect(() => loadAddresses(wrong, 1, [])).toThrow(/must default-export the result of defineAddresses\(\)/);

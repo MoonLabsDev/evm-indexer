@@ -50,8 +50,11 @@ with a handler, and a factory whose event creates a template.
 - **`tsconfig.json` is written only if the project has none** and is never overwritten,
   not even with `--force`.
 - Needs no database and no RPC, and does not run `codegen`.
-- Ends by printing the next steps: install `evm-indexer` if missing, `codegen`, start a
-  hardhat node and deploy, `index`, `process`.
+- Ends by printing the next steps: install `evm-indexer` if missing, `codegen`, copy
+  `.env.example` to `.env` (needs a running MongoDB), start a hardhat node and deploy
+  `Token` first and `Factory` second (the addresses in `addresses.ts` assume that order,
+  or edit them), `index --chain 31337`, then `PORT=3001 process --chain 31337` (both
+  commands default to port 3000, so the processor needs its own).
 
 ## codegen
 

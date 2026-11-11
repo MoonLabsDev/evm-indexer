@@ -33,6 +33,13 @@ needs no database and no RPC and does not run `codegen`. Files that already exis
 skipped and listed; `--force` overwrites them. `tsconfig.json` is written only if the
 project has none and is never overwritten. See [CLI](cli.md#init).
 
+To run the demo as it is: `npx evm-indexer codegen`, copy `.env.example` to `.env` (needs
+a running MongoDB), start `npx hardhat node`, deploy `Token` first and `Factory` second
+(the addresses in `addresses.ts` assume that order; otherwise edit them), then run
+`npx evm-indexer index --chain 31337` and, in a second terminal,
+`PORT=3001 npx evm-indexer process --chain 31337`. Both commands default to port 3000,
+so the processor needs its own port.
+
 ## Project layout
 
 ```
@@ -91,16 +98,16 @@ The steps below replace the demo with your own contracts. Skip what you keep.
    });
    ```
 
-5. **Generate the classes:**
+4. **Generate the classes:**
 
    ```bash
    npx evm-indexer codegen
    ```
 
-6. **Write `indexer.config.ts` and your handlers.** See [Configuration](configuration.md)
+5. **Write `indexer.config.ts` and your handlers.** See [Configuration](configuration.md)
    and [Callbacks](callbacks.md).
 
-7. **List the static contracts** in `addresses.ts`, with the block to start from. The
+6. **List the static contracts** in `addresses.ts`, with the block to start from. The
    contract names come from `indexer.config.ts`, so write this file after it:
 
    ```ts
@@ -112,7 +119,7 @@ The steps below replace the demo with your own contracts. Skip what you keep.
    });
    ```
 
-8. **Set the environment** in `.env` (the demo ships `.env.example`):
+7. **Set the environment** in `.env` (the demo ships `.env.example`):
 
    ```
    MONGO_URI=mongodb://localhost:27017
@@ -120,7 +127,7 @@ The steps below replace the demo with your own contracts. Skip what you keep.
    PORT=3000
    ```
 
-9. **Check the types, then run the indexer and the processor**, each in its own process and on its own port:
+8. **Check the types, then run the indexer and the processor**, each in its own process and on its own port:
 
    ```bash
    npx tsc --noEmit

@@ -394,6 +394,6 @@ describe('cmdCodegen', () => {
     const root = project('gen', {
       'schema.ts': `import './generated';\nimport { defineSchema } from ${indexSrc};\nexport default defineSchema({});\n`,
     });
-    await expect(cmdCodegen({ root })).rejects.toThrow(/must not import from generated\//);
+    await expect(cmdCodegen({ root })).rejects.toThrow(/schema\.ts.*must not import from generated\//);
   });
 });

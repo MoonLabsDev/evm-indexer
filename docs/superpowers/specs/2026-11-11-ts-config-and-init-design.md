@@ -71,7 +71,7 @@ All helpers are exported from the package root together with their input types.
 - Runtime validation stays: `parseChains`, `parseAddresses` and the schema validation run
   on the loaded object with the same messages as today. The CLI runs TypeScript without
   type checking, so both layers are needed.
-- `readJsonFile` remains for ABIs only. JSON loaders for chains, addresses and schema are
+- `readJsonFile` was removed (ABIs are read by codegen's own reader). JSON loaders for chains, addresses and schema are
   removed; there is no fallback.
 - `codegen` loads `schema.ts` before `generated/` exists, so `schema.ts` must not import
   from `generated/`. A missing `schema.ts` still means "no entities". `codegen` does not

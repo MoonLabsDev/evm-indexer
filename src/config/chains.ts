@@ -1,24 +1,8 @@
-import { readFileSync } from 'node:fs';
 import type { ChainConfig, SizeBounds } from '../types';
 import { ConfigError } from './errors';
 import { loadTsDefault } from './load';
 
 export { ConfigError };
-
-/** Reads and parses a JSON file; missing or invalid files raise a ConfigError naming the path. */
-export function readJsonFile(path: string): unknown {
-  let text: string;
-  try {
-    text = readFileSync(path, 'utf8');
-  } catch (e) {
-    throw new ConfigError(`cannot read ${path}: ${(e as Error).message}`);
-  }
-  try {
-    return JSON.parse(text);
-  } catch (e) {
-    throw new ConfigError(`cannot parse ${path}: ${(e as Error).message}`);
-  }
-}
 
 export function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);

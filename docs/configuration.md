@@ -155,7 +155,11 @@ The CLI reports these when it loads a config file:
 | `cannot read <path>: file not found` | The file does not exist |
 | `<path> not found; <name>.json is no longer read: move it to <name>.ts with export default <helper>(...)` | A project from before 0.2 still has `chains.json`, `addresses.json` or `schema.json`. The JSON files are not read; there is no fallback |
 | `cannot load <path>: <reason>` | The file threw while loading, for example a syntax error or a failing import |
+| `cannot load <path>: <reason> (schema.ts must not import from generated/; it is loaded before generated/ exists)` | The same `cannot load` failure when it comes from `schema.ts` during `codegen`: the suffix is added because `schema.ts` is loaded before `generated/` exists, so it must not import from it |
 | `<path> must default-export the result of <helper>()` | The default export is missing or was not built by `defineChains`, `defineSchema` or `defineAddresses` |
+
+A missing `schema.ts` (with no `schema.json` either) is not an error for `codegen`: it
+means no entities.
 
 ABIs stay JSON under `abis/`.
 

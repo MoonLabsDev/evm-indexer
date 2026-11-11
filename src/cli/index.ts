@@ -44,9 +44,12 @@ export function buildProgram(): Command {
       log.result('Next steps:');
       log.result('  1. npm install evm-indexer');
       log.result('  2. npx evm-indexer codegen');
-      log.result('  3. start a hardhat node (npx hardhat node) and deploy your contracts to it');
-      log.result('  4. npx evm-indexer index --chain 31337');
-      log.result('  5. npx evm-indexer process --chain 31337');
+      log.result('  3. copy .env.example to .env (needs a running MongoDB)');
+      log.result('  4. start a hardhat node (npx hardhat node), then deploy Token first and Factory second');
+      log.result('     (the addresses in addresses.ts assume that order; otherwise edit addresses.ts)');
+      log.result('  5. npx evm-indexer index --chain 31337');
+      log.result('  6. in a second terminal: PORT=3001 npx evm-indexer process --chain 31337');
+      log.result('     (index and process both default to PORT 3000, so give the processor its own port)');
     });
 
   program.command('codegen').description('generate generated/ from abis/ and schema.ts')

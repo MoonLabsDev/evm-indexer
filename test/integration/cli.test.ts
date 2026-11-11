@@ -251,7 +251,7 @@ describe('the built CLI against a client project that imports evm-indexer by nam
   it('loads the config of an ESM client project ("type": "module")', () => {
     rmSync(ESM_PROJECT, { recursive: true, force: true });
     mkdirSync(ESM_PROJECT, { recursive: true });
-    for (const f of ['indexer.config.ts', 'chains.ts', 'schema.ts', 'abis', 'handlers.ts', 'generated']) {
+    for (const f of ['indexer.config.ts', 'chains.ts', 'addresses.ts', 'schema.ts', 'abis', 'handlers.ts', 'generated']) {
       cpSync(join(PROJECT, f), join(ESM_PROJECT, f), { recursive: true });
     }
     writeFileSync(join(ESM_PROJECT, 'package.json'), JSON.stringify({ type: 'module' }) + '\n');
@@ -261,10 +261,17 @@ describe('the built CLI against a client project that imports evm-indexer by nam
       `const { loadIndexerConfig } = require(${JSON.stringify(join(ROOT, 'dist', 'config', 'indexerConfig.js'))});`,
       `const cfg = loadIndexerConfig(${JSON.stringify(join(ESM_PROJECT, 'indexer.config.ts'))});`,
       'console.log(Object.keys(cfg.sources).join(","));',
+      `const { loadChain } = require(${JSON.stringify(join(ROOT, 'dist', 'config', 'chains.js'))});`,
+      `const { loadAddresses } = require(${JSON.stringify(join(ROOT, 'dist', 'config', 'addresses.js'))});`,
+      `const chain = loadChain(${JSON.stringify(join(ESM_PROJECT, 'chains.ts'))}, ${CHAIN_ID});`,
+      `const addrs = loadAddresses(${JSON.stringify(join(ESM_PROJECT, 'addresses.ts'))}, ${CHAIN_ID}, ['Factory']);`,
+      'console.log(chain.name + ":" + addrs.map((a) => a.source).join(","));',
     ].join('\n');
     const res = spawnSync(process.execPath, ['-e', script], { cwd: ESM_PROJECT, encoding: 'utf8' });
     expect(res.status, `${res.stdout}${res.stderr}`).toBe(0);
-    expect(res.stdout.trim()).toBe('Factory,PoolTemplate');
+    const [sources, loaded] = res.stdout.trim().split(/\r?\n/);
+    expect(sources).toBe('Factory,PoolTemplate');
+    expect(loaded).toMatch(/^[^:]+:Factory$/);
 
     // codegen loads only schema.ts, through tsx, in an ESM project; start from no generated/ so the
     // entity files below prove it ran

@@ -67,6 +67,14 @@ describe('defineChains types', () => {
     defineChains({ 1: { name: 'x', rpc: [], foo: 1 } });
     defineChains({ 1: { name: 'x', rpc: [], logRange: { max: 5 } } });
   });
+
+  it('accepts as-const objects and readonly arrays held in variables', () => {
+    const chains = { 1: { name: 'x', rpc: ['http://x'], retryDelays: [1, 2] } } as const;
+    defineChains(chains);
+    const urls: readonly string[] = ['http://x'];
+    const delays: readonly number[] = [1];
+    defineChains({ 1: { name: 'x', rpc: urls, retryDelays: delays } });
+  });
 });
 
 describe('defineAddresses types', () => {
@@ -92,5 +100,10 @@ describe('defineAddresses types', () => {
     // @ts-expect-error templates have no static address
     defineAddresses(cfg, { 1: { Factory: e, Token: e, PoolTemplate: e } });
     defineAddresses(cfg, { 1: { Factory: e, Token: e } });
+  });
+
+  it('accepts an as-const address array', () => {
+    const list = { address: ['0x' + '1'.repeat(40), '0x' + '2'.repeat(40)], block: 1 } as const;
+    defineAddresses(cfg, { 1: { Factory: list, Token: e } });
   });
 });
