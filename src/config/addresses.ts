@@ -1,9 +1,10 @@
 import type { StaticEntry } from '../types';
-import { ConfigError, isRecord, readJsonFile } from './chains';
+import { ConfigError, isRecord } from './chains';
+import { loadTsDefault } from './load';
 
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 
-/** Expands the addresses.json entries of one chain into lowercased StaticEntry rows. */
+/** Expands the addresses config entries of one chain into lowercased StaticEntry rows. */
 export function parseAddresses(json: unknown, chainId: number, contractNames: string[]): StaticEntry[] {
   if (!isRecord(json)) throw new ConfigError('addresses config must be an object keyed by chain id');
   const chain = json[String(chainId)];
@@ -32,5 +33,5 @@ export function parseAddresses(json: unknown, chainId: number, contractNames: st
 }
 
 export function loadAddresses(path: string, chainId: number, contractNames: string[]): StaticEntry[] {
-  return parseAddresses(readJsonFile(path), chainId, contractNames);
+  return parseAddresses(loadTsDefault(path, 'addresses'), chainId, contractNames);
 }

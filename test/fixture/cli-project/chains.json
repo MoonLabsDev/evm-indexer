@@ -1,9 +1,0 @@
-{
-  "31337": {
-    "name": "hardhat",
-    "rpc": ["http://127.0.0.1:8546"],
-    "retryDelays": [50, 100],
-    "headThreshold": 3,
-    "pollInterval": 100
-  }
-}

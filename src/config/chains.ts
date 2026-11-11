@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import type { ChainConfig, SizeBounds } from '../types';
+import { loadTsDefault } from './load';
 
 export class ConfigError extends Error {
   constructor(message: string) {
@@ -81,7 +82,7 @@ function parseChain(id: string, raw: unknown): ChainConfig {
   };
 }
 
-/** Validates a chains.json document and applies defaults. */
+/** Validates a chains config object and applies defaults. */
 export function parseChains(json: unknown): Record<string, ChainConfig> {
   if (!isRecord(json)) throw new ConfigError('chains config must be an object keyed by chain id');
   const out: Record<string, ChainConfig> = {};
@@ -90,7 +91,7 @@ export function parseChains(json: unknown): Record<string, ChainConfig> {
 }
 
 export function loadChain(path: string, chainId: number): ChainConfig {
-  const chains = parseChains(readJsonFile(path));
+  const chains = parseChains(loadTsDefault(path, 'chains'));
   const c = chains[String(chainId)];
   if (!c) throw new ConfigError(`chain ${chainId} not found in ${path}`);
   return c;

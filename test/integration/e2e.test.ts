@@ -93,7 +93,7 @@ async function ping(address: string): Promise<void> {
 
 function newIndexer(): IndexerT {
   const contractNames = Object.values(config.sources).filter((s) => s.kind === 'contract').map((s) => s.name);
-  const statics = loadAddresses(join(PROJECT, 'addresses.json'), CHAIN_ID, contractNames);
+  const statics = loadAddresses(join(PROJECT, 'addresses.ts'), CHAIN_ID, contractNames);
   return new Indexer({ chain, pool, store, config, statics });
 }
 
@@ -125,13 +125,18 @@ beforeAll(async () => {
   for (let i = 0; i < 5; i++) await provider.send('evm_mine', []);
 
   writeFileSync(
-    join(PROJECT, 'addresses.json'),
-    JSON.stringify({ [CHAIN_ID]: { Factory: { address: factoryAddress, block: deployBlock } } }, null, 2) + '\n',
+    join(PROJECT, 'addresses.ts'),
+    [
+      `import { defineAddresses } from '../../../src/index';`,
+      `import config from './indexer.config';`,
+      `export default defineAddresses(config, { ${CHAIN_ID}: { Factory: { address: '${factoryAddress}', block: ${deployBlock} } } });`,
+      '',
+    ].join('\n'),
   );
 
   mongo = await startMongo();
   db = mongo.db;
-  chain = loadChain(join(PROJECT, 'chains.json'), CHAIN_ID);
+  chain = loadChain(join(PROJECT, 'chains.ts'), CHAIN_ID);
   config = loadIndexerConfig(join(PROJECT, 'indexer.config.ts'));
   pool = new RpcPool([new HttpTransport(chain.rpc[0])], {
     retryDelays: chain.retryDelays, logRange: chain.logRange, blockBatch: chain.blockBatch,

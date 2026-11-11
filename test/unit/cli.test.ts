@@ -78,8 +78,8 @@ describe('environment', () => {
     expect(() => resolvePort({ PORT: '70000' })).toThrow(ConfigError);
   });
 
-  it('cmdProcess fails on a project without chains.json before touching MongoDB', async () => {
-    await expect(cmdProcess({ root: 'test/does-not-exist' }, 1)).rejects.toThrow(/chains\.json/);
+  it('cmdProcess fails on a project without chains.ts before touching MongoDB', async () => {
+    await expect(cmdProcess({ root: 'test/does-not-exist' }, 1)).rejects.toThrow(/chains\.ts/);
   });
 });
 

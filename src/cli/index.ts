@@ -21,7 +21,7 @@ export function buildProgram(): Command {
     .name('evm-indexer')
     .description('Subgraph-like EVM event indexer')
     .option('--debug', 'verbose logs: per event and per RPC retry')
-    .option('--root <dir>', 'project directory with chains.json, addresses.json, ...', process.cwd());
+    .option('--root <dir>', 'project directory with chains.ts, addresses.ts, ...', process.cwd());
 
   const globals = (): GlobalOpts => program.opts<GlobalOpts>();
   const paths = () => ({ root: globals().root });

@@ -154,8 +154,13 @@ beforeAll(async () => {
   head = await provider.getBlockNumber();
 
   writeFileSync(
-    join(PROJECT, 'addresses.json'),
-    JSON.stringify({ [CHAIN_ID]: { Factory: { address: factoryAddress, block: deployBlock } } }, null, 2) + '\n',
+    join(PROJECT, 'addresses.ts'),
+    [
+      `import { defineAddresses } from 'evm-indexer';`,
+      `import config from './indexer.config';`,
+      `export default defineAddresses(config, { ${CHAIN_ID}: { Factory: { address: '${factoryAddress}', block: ${deployBlock} } } });`,
+      '',
+    ].join('\n'),
   );
   mongo = await startMongo();
   db = mongo.db;

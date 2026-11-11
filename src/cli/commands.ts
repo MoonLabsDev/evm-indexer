@@ -20,8 +20,8 @@ import type { ChainConfig } from '../types';
 export interface ProjectPaths { root: string }
 
 const files = (p: ProjectPaths) => ({
-  chains: join(p.root, 'chains.json'),
-  addresses: join(p.root, 'addresses.json'),
+  chains: join(p.root, 'chains.ts'),
+  addresses: join(p.root, 'addresses.ts'),
   schema: join(p.root, 'schema.json'),
   abis: join(p.root, 'abis'),
   generated: join(p.root, 'generated'),
