@@ -7,7 +7,10 @@ import { parseSchema } from './schema';
 
 export interface CodegenOptions {
   abiDir: string;
-  schemaPath: string;
+  /** The loaded schema value (what `defineSchema` wraps); `undefined` means no entities. */
+  schema?: unknown;
+  /** Name used in schema error messages. Default 'schema.ts'. */
+  schemaSource?: string;
   outDir: string;
   /** Module the generated files import the runtime from. Defaults to the package name. */
   runtimeImport?: string;
@@ -35,6 +38,7 @@ function extractAbi(file: string, json: unknown): unknown[] {
  */
 export function runCodegen(opts: CodegenOptions): { files: string[]; warnings: string[] } {
   const runtimeImport = opts.runtimeImport ?? 'evm-indexer';
+  const schemaSource = opts.schemaSource ?? 'schema.ts';
   if (!existsSync(opts.abiDir)) throw new Error(`ABI directory not found: ${opts.abiDir}`);
 
   const sources = new Map<string, string>(); // path relative to outDir -> content
@@ -58,19 +62,19 @@ export function runCodegen(opts: CodegenOptions): { files: string[]; warnings: s
   }
 
   const tables: string[] = [];
-  if (existsSync(opts.schemaPath)) {
+  if (opts.schema !== undefined) {
     let schema;
     try {
-      schema = parseSchema(readJson(opts.schemaPath));
+      schema = parseSchema(opts.schema);
     } catch (e) {
-      throw new Error(`${opts.schemaPath}: ${(e as Error).message}`);
+      throw new Error(`${schemaSource}: ${(e as Error).message}`);
     }
     const byLower = new Map<string, string>();
     for (const table of Object.keys(schema)) {
       const other = byLower.get(table.toLowerCase());
       if (other !== undefined) {
         throw new Error(
-          `${opts.schemaPath}: tables "${other}" and "${table}" differ only by case; their generated files ` +
+          `${schemaSource}: tables "${other}" and "${table}" differ only by case; their generated files ` +
             'would overwrite each other on a case-insensitive file system; rename one of them',
         );
       }

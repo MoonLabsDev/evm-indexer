@@ -34,7 +34,7 @@ export function buildProgram(): Command {
     loadEnv({ path: join(g.root, '.env'), quiet: true });
   });
 
-  program.command('codegen').description('generate generated/ from abis/ and schema.json')
+  program.command('codegen').description('generate generated/ from abis/ and schema.ts')
     .action(() => cmdCodegen(paths()));
 
   program.command('index').description('run the indexer for one chain')

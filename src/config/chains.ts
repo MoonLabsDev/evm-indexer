@@ -1,13 +1,9 @@
 import { readFileSync } from 'node:fs';
 import type { ChainConfig, SizeBounds } from '../types';
+import { ConfigError } from './errors';
 import { loadTsDefault } from './load';
 
-export class ConfigError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'ConfigError';
-  }
-}
+export { ConfigError };
 
 /** Reads and parses a JSON file; missing or invalid files raise a ConfigError naming the path. */
 export function readJsonFile(path: string): unknown {

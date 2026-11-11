@@ -16,14 +16,12 @@ const schema = {
 };
 const sampleAbi = () => JSON.parse(readFileSync(join(ABIS, 'Sample.json'), 'utf8'));
 
-function setup(name: string, schemaJson: unknown, abis: Record<string, unknown>) {
+function setup(name: string, schema: unknown, abis: Record<string, unknown>) {
   const root = join(TMP, name);
   const abiDir = join(root, 'abis');
   mkdirSync(abiDir, { recursive: true });
-  const schemaPath = join(root, 'schema.json');
-  writeFileSync(schemaPath, JSON.stringify(schemaJson));
   for (const [file, content] of Object.entries(abis)) writeFileSync(join(abiDir, file), JSON.stringify(content));
-  return { root, abiDir, schemaPath, outDir: join(root, 'generated') };
+  return { abiDir, schema, outDir: join(root, 'generated') };
 }
 const runtimeFor = (outDir: string) => relative(join(outDir, 'entities'), SRC_INDEX).replace(/\\/g, '/');
 
@@ -115,7 +113,7 @@ describe('runCodegen', () => {
 
   it('contract files import the runtime types with import type (verbatimModuleSyntax)', () => {
     const p = setup('importtype', {}, { 'Sample.json': sampleAbi() });
-    runCodegen({ ...p, schemaPath: join(p.root, 'missing.json') });
+    runCodegen({ ...p, schema: undefined });
     const src = readFileSync(join(p.outDir, 'contracts', 'Sample.ts'), 'utf8');
     expect(src.split(/\r?\n/).slice(0, 2)).toEqual([
       "import { BaseContract } from 'evm-indexer';",
@@ -123,9 +121,9 @@ describe('runCodegen', () => {
     ]);
   });
 
-  it('treats a missing schema file as no entities', () => {
+  it('treats an undefined schema as no entities', () => {
     const p = setup('noschema', {}, { 'Sample.json': sampleAbi() });
-    const { files } = runCodegen({ ...p, schemaPath: join(p.root, 'missing.json') });
+    const { files } = runCodegen({ ...p, schema: undefined });
     expect(files).toEqual([
       join(p.outDir, 'contracts', 'Sample.ts'), join(p.outDir, 'contracts', 'index.ts'),
       join(p.outDir, 'entities', 'index.ts'), join(p.outDir, 'index.ts'),
@@ -138,7 +136,7 @@ describe('runCodegen', () => {
   }
 
   it('writes nothing when the schema is invalid', () => {
-    writesNothing(setup('badschema', { A: { x: 'nope' } }, { 'Sample.json': sampleAbi() }), /nope/);
+    writesNothing(setup('badschema', { A: { x: 'nope' } }, { 'Sample.json': sampleAbi() }), /^schema\.ts: .*nope/);
   });
 
   it('writes nothing when a table is named like a type exported by a contract file', () => {
@@ -148,7 +146,7 @@ describe('runCodegen', () => {
   it('writes nothing when two tables differ only by case', () => {
     writesNothing(
       setup('case', { Pool: { x: 'string' }, pool: { y: 'string' } }, { 'Sample.json': sampleAbi() }),
-      /"Pool" and "pool" differ only by case/,
+      /^schema\.ts: tables "Pool" and "pool" differ only by case/,
     );
   });
 

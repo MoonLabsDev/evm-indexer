@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { basename, extname, join, dirname, resolve } from 'node:path';
-import { ConfigError } from './chains';
+import { ConfigError } from './errors';
 import type { ConfigKind } from '../runtime/define';
 
 let tsxRegistered = false;

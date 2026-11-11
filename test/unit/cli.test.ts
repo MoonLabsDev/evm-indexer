@@ -1,10 +1,13 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import { PassThrough } from 'stream';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join, resolve } from 'path';
 import type { Db } from 'mongodb';
 import { startMongo } from '../helpers/mongo';
 import { createServer, type Server } from 'net';
 import {
-  askYesNo, assertNotRunning, cmdProcess, cmdReset, cmdSetRevision, connectFromEnv, isStopRequested, onStop,
+  askYesNo, assertNotRunning, cmdCodegen, cmdProcess, cmdReset, cmdSetRevision, connectFromEnv, isStopRequested, onStop,
   requestStop, resolveChainId, resolvePort, serveStatus, startHeartbeat,
 } from '../../src/cli/commands';
 import { ConfigError } from '../../src/config/chains';
@@ -352,5 +355,45 @@ describe('requestStop', () => {
     onStop(late);
     expect(late).toHaveBeenCalledTimes(1);
     expect(isStopRequested()).toBe(true);
+  });
+});
+
+describe('cmdCodegen', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'evm-codegen-'));
+  const indexSrc = JSON.stringify(resolve(__dirname, '../../src/index.ts'));
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+
+  /** A project folder with an empty abis/ and the given files. */
+  function project(name: string, files: Record<string, string>): string {
+    const root = join(dir, name);
+    mkdirSync(join(root, 'abis'), { recursive: true });
+    for (const [file, text] of Object.entries(files)) writeFileSync(join(root, file), text);
+    return root;
+  }
+
+  it('generates entities from schema.ts', async () => {
+    const root = project('ok', {
+      'schema.ts': `import { defineSchema } from ${indexSrc};\nexport default defineSchema({ A: { n: 'int' } });\n`,
+    });
+    await cmdCodegen({ root });
+    expect(existsSync(join(root, 'generated', 'entities', 'A.ts'))).toBe(true);
+  });
+
+  it('rejects a project that only has schema.json', async () => {
+    const root = project('json', { 'schema.json': '{ "A": { "n": "int" } }' });
+    await expect(cmdCodegen({ root })).rejects.toThrow(/schema\.json is no longer read/);
+  });
+
+  it('generates no entities when there is no schema file', async () => {
+    const root = project('none', {});
+    await cmdCodegen({ root });
+    expect(readFileSync(join(root, 'generated', 'entities', 'index.ts'), 'utf8')).toBe('export {};\n');
+  });
+
+  it('explains a schema.ts that imports from generated/', async () => {
+    const root = project('gen', {
+      'schema.ts': `import './generated';\nimport { defineSchema } from ${indexSrc};\nexport default defineSchema({});\n`,
+    });
+    await expect(cmdCodegen({ root })).rejects.toThrow(/must not import from generated\//);
   });
 });

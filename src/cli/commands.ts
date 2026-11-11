@@ -1,8 +1,10 @@
+import { existsSync } from 'fs';
 import { join } from 'path';
 import { createInterface } from 'readline';
 import type { Db, MongoClient } from 'mongodb';
 import { runCodegen } from '../codegen';
 import { ConfigError, loadChain } from '../config/chains';
+import { loadTsDefault } from '../config/load';
 import { loadAddresses } from '../config/addresses';
 import { loadIndexerConfig } from '../config/indexerConfig';
 import { Indexer } from '../indexer/indexer';
@@ -22,7 +24,7 @@ export interface ProjectPaths { root: string }
 const files = (p: ProjectPaths) => ({
   chains: join(p.root, 'chains.ts'),
   addresses: join(p.root, 'addresses.ts'),
-  schema: join(p.root, 'schema.json'),
+  schema: join(p.root, 'schema.ts'),
   abis: join(p.root, 'abis'),
   generated: join(p.root, 'generated'),
   config: join(p.root, 'indexer.config.ts'),
@@ -108,10 +110,28 @@ export async function connectFromEnv(env: NodeJS.ProcessEnv = process.env): Prom
 
 // ---- commands ----
 
+/**
+ * Loads `schema.ts`; no schema.ts and no schema.json means no entities. A leftover schema.json goes
+ * through the loader so its "no longer read" hint is raised. schema.ts is loaded before generated/
+ * exists, so a failure to load it may come from an import of generated/.
+ */
+function loadSchema(path: string): unknown {
+  if (!existsSync(path) && !existsSync(path.replace(/\.ts$/, '.json'))) return undefined;
+  try {
+    return loadTsDefault(path, 'schema');
+  } catch (e) {
+    if (e instanceof ConfigError && e.message.startsWith('cannot load ')) {
+      throw new ConfigError(`${e.message} (schema.ts must not import from generated/; it is loaded before generated/ exists)`);
+    }
+    throw e;
+  }
+}
+
 export async function cmdCodegen(p: ProjectPaths): Promise<void> {
   const f = files(p);
   log.step(`Generate code into ${f.generated}`);
-  const { files: written, warnings } = runCodegen({ abiDir: f.abis, schemaPath: f.schema, outDir: f.generated });
+  const schema = loadSchema(f.schema);
+  const { files: written, warnings } = runCodegen({ abiDir: f.abis, schema, outDir: f.generated });
   for (const w of warnings) log.result(`warning: ${w}`);
   log.result(`${written.length} files written`);
 }

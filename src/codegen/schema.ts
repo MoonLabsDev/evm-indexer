@@ -67,7 +67,7 @@ function parseType(where: string, raw: unknown, tables: Set<string>): FieldSpec 
   return { type: rest as BaseType, array, optional };
 }
 
-/** Validates `schema.json` and turns it into field specs per table. */
+/** Validates the schema (the value of `schema.ts`) and turns it into field specs per table. */
 export function parseSchema(json: unknown): Record<string, Record<string, FieldSpec>> {
   if (typeof json !== 'object' || json === null || Array.isArray(json)) {
     throw new SchemaError('Schema must be an object mapping table names to field definitions');

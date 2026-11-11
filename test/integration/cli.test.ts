@@ -251,7 +251,7 @@ describe('the built CLI against a client project that imports evm-indexer by nam
   it('loads the config of an ESM client project ("type": "module")', () => {
     rmSync(ESM_PROJECT, { recursive: true, force: true });
     mkdirSync(ESM_PROJECT, { recursive: true });
-    for (const f of ['indexer.config.ts', 'handlers.ts', 'generated']) {
+    for (const f of ['indexer.config.ts', 'chains.ts', 'schema.ts', 'abis', 'handlers.ts', 'generated']) {
       cpSync(join(PROJECT, f), join(ESM_PROJECT, f), { recursive: true });
     }
     writeFileSync(join(ESM_PROJECT, 'package.json'), JSON.stringify({ type: 'module' }) + '\n');
@@ -265,5 +265,9 @@ describe('the built CLI against a client project that imports evm-indexer by nam
     const res = spawnSync(process.execPath, ['-e', script], { cwd: ESM_PROJECT, encoding: 'utf8' });
     expect(res.status, `${res.stdout}${res.stderr}`).toBe(0);
     expect(res.stdout.trim()).toBe('Factory,PoolTemplate');
+
+    // codegen loads chains.ts-style config the same way: schema.ts through tsx in an ESM project
+    const codegen = spawnSync(process.execPath, [CLI, 'codegen', '--root', ESM_PROJECT], { cwd: ESM_PROJECT, encoding: 'utf8' });
+    expect(codegen.status, `${codegen.stdout}${codegen.stderr}`).toBe(0);
   });
 });

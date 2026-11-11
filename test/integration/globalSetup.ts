@@ -3,6 +3,7 @@ import { copyFileSync, mkdirSync, rmSync } from 'fs';
 import { createConnection } from 'net';
 import { join, relative } from 'path';
 import { runCodegen } from '../../src/codegen';
+import { loadTsDefault } from '../../src/config/load';
 import { FIXTURE, PROJECT, ROOT, RPC_PORT, RPC_URL } from './fixture';
 
 // Builds the fixture project (compile, ABIs, codegen, type-check) and runs a hardhat node on 8546.
@@ -67,7 +68,7 @@ function buildProject(): void {
   }
   // generated/contracts/* and generated/entities/* sit at the same depth, so one relative path fits both.
   const runtimeImport = relative(join(outDir, 'contracts'), join(ROOT, 'src', 'index')).replace(/\\/g, '/');
-  runCodegen({ abiDir, schemaPath: join(PROJECT, 'schema.json'), outDir, runtimeImport });
+  runCodegen({ abiDir, schema: loadTsDefault(join(PROJECT, 'schema.ts'), 'schema'), outDir, runtimeImport });
 
   // The generated code, the config and the handlers must compile under strict.
   run('type-check of test/fixture/project (tsconfig.fixture.json)', [TSC_BIN, '--noEmit', '-p', join(ROOT, 'tsconfig.fixture.json')]);
