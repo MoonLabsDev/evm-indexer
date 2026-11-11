@@ -1,0 +1,294 @@
+{
+  "plan": "e:/MoonLabs/Internal/Code/utils/evm-indexer/docs/superpowers/plans/2026-11-11-ts-config-and-init.md",
+  "updatedAt": 1794436459809,
+  "overhead": {
+    "costUsd": {
+      "b215dacd-31aa-4c84-9e47-64d98f06cb9d": 13.844047699999876
+    }
+  },
+  "phases": [
+    {
+      "id": "p1",
+      "title": "`define…` helpers and types",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "p1t1",
+          "title": "Write failing runtime tests in `test/unit/define.test.ts`:",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p1t2",
+          "title": "Write failing type tests in `test/unit/define.types.test.ts` (each bad case with `// @ts-expect-error`):",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p1t3",
+          "title": "Run `npm run test:unit -- define` → FAIL (helpers not exported).",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p1t4",
+          "title": "Implement the types and the three helpers; each helper returns `{ __evmIndexerConfig: kind, value: input }`. `defineAddresses` ignores `config` at runtime.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p1t5",
+          "title": "Run `npm run test:unit` and `npm run build` → PASS (other code still compiles because `NormalizedConfig` defaults `Names` to `string`).",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p1t6",
+          "title": "Commit `feat: defineChains, defineSchema, defineAddresses`.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        }
+      ]
+    },
+    {
+      "id": "p2",
+      "title": "TS loader; chains and addresses from `.ts`",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "p2t1",
+          "title": "Rewrite the file-loading tests in `test/unit/config.test.ts`. Temp files are written as `.ts` text that imports the helpers by absolute path to `src/index.ts` (use `JSON.stringify(path)` for the import specifier). Cases:",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p2t2",
+          "title": "Update `test/unit/cli.test.ts:81` to expect `/chains\\.ts/`.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p2t3",
+          "title": "Run `npm run test:unit -- config cli` → FAIL.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p2t4",
+          "title": "Implement `src/config/load.ts`; make `loadIndexerConfig` import `registerTsx` from it; switch `loadChain` / `loadAddresses` to `parseX(loadTsDefault(path, kind), …)`; change the two paths in `commands.ts`. `readJsonFile` stays exported (ABIs).",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p2t5",
+          "title": "Convert the fixtures. `chains.ts` in both fixture projects with the same values as the JSON, importing `defineChains` the same way that project's `indexer.config.ts` imports `defineIndexer`. In `e2e.test.ts` and `cli.test.ts`, where `addresses.json` is written with the deployed factory address, write `addresses.ts` instead:",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p2t6",
+          "title": "Run `npm run build && npm run test:unit && npm run test:integration` → PASS.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p2t7",
+          "title": "Commit `feat!: read chains and addresses from TypeScript files`.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        }
+      ]
+    },
+    {
+      "id": "p3",
+      "title": "`schema.ts` for codegen",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "p3t1",
+          "title": "Update `test/unit/codegen.test.ts`: `setup()` returns `{ abiDir, schema, outDir }` (schema object passed through, no file written); the two \"missing schema\" tests pass `schema: undefined`; error expectations that matched the schema path match `schema.ts`.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p3t2",
+          "title": "Add to `test/unit/cli.test.ts` (temp project dirs with an empty `abis/`):",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p3t3",
+          "title": "Run `npm run test:unit -- codegen cli` → FAIL.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p3t4",
+          "title": "Implement the `CodegenOptions` change and `cmdCodegen`.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p3t5",
+          "title": "Convert both fixture `schema.json` files to `schema.ts` (same tables). `globalSetup.ts` and `cli.test.ts` setup: load with `loadTsDefault(join(PROJECT, 'schema.ts'), 'schema')` and pass `schema`. Extend the existing ESM-project case in `test/integration/cli.test.ts` so that project also has `chains.ts` and `schema.ts`, and assert `codegen` exits 0 there.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p3t6",
+          "title": "Run `npm run build && npm run test:unit && npm run test:integration` → PASS.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p3t7",
+          "title": "Commit `feat!: read the entity schema from schema.ts`.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        }
+      ]
+    },
+    {
+      "id": "p4",
+      "title": "`init` command and templates",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "p4t1",
+          "title": "Write failing unit tests `test/unit/init.test.ts` (temp dirs under `test/.tmp`):",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p4t2",
+          "title": "Run `npm run test:unit -- init` → FAIL.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p4t3",
+          "title": "Write the templates and implement `cmdInit` and the CLI command.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p4t4",
+          "title": "Run `npm run test:unit -- init` → PASS.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p4t5",
+          "title": "Write the integration test `test/integration/init.test.ts`: build `dist` (as `cli.test.ts` does), run `node dist/cli/index.js --root <tmp> init`, make `evm-indexer` resolvable from `<tmp>` the same way `cli.test.ts` does for `cli-project`, run `codegen`, then `tsc --noEmit -p <tmp>/tsconfig.json`. Expect all three exit codes 0 and `generated/index.ts` to exist. Then load the result in-process: `loadChain(<tmp>/chains.ts, 31337).name === 'hardhat'`.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p4t6",
+          "title": "Run `npm run build && npm run test:integration` → PASS. Also `npm pack --dry-run` lists `templates/init/chains.ts.tpl`.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p4t7",
+          "title": "Commit `feat: init command with a demo project`.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        }
+      ]
+    },
+    {
+      "id": "p5",
+      "title": "Documentation",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "p5t1",
+          "title": "Find every stale reference: `grep -rn \"chains.json\\|addresses.json\\|schema.json\" README.md docs/*.md src` → replace each with the `.ts` file and, where an example is shown, the `define…` form from the spec. `src` comments included.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p5t2",
+          "title": "Content changes.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p5t3",
+          "title": "Verify: the grep from Step 1 returns nothing outside `docs/superpowers/`; every relative link in the edited files resolves to an existing file or heading.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        },
+        {
+          "id": "p5t4",
+          "title": "Commit `docs: TypeScript config files and init`.",
+          "status": "pending",
+          "costUsd": {},
+          "approx": false,
+          "updatedAt": 0
+        }
+      ]
+    }
+  ]
+}
