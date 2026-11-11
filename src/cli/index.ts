@@ -9,6 +9,7 @@ import {
   cmdCodegen, cmdIndex, cmdProcess, cmdReset, cmdSetRevision, connectFromEnv, isStopRequested, requestStop,
   resolveChainId, runShutdown,
 } from './commands';
+import { cmdInit } from './init';
 
 /** After SIGINT / SIGTERM the process exits at the latest this long after the signal. */
 const SHUTDOWN_TIMEOUT_MS = 30_000;
@@ -33,6 +34,20 @@ export function buildProgram(): Command {
     // The project's own .env in addition to the one in the working directory; never overrides.
     loadEnv({ path: join(g.root, '.env'), quiet: true });
   });
+
+  program.command('init').description('write a demo project (chains, schema, ABIs, handlers) into the project directory')
+    .option('--force', 'overwrite existing files (tsconfig.json is never overwritten)')
+    .action((o: { force?: boolean }) => {
+      const res = cmdInit(globals().root, { force: o.force === true });
+      for (const f of res.written) log.result(`wrote ${f}`);
+      for (const f of res.skipped) log.result(`skipped ${f} (exists)`);
+      log.result('Next steps:');
+      log.result('  1. npm install evm-indexer');
+      log.result('  2. npx evm-indexer codegen');
+      log.result('  3. start a hardhat node (npx hardhat node) and deploy your contracts to it');
+      log.result('  4. npx evm-indexer index --chain 31337');
+      log.result('  5. npx evm-indexer process --chain 31337');
+    });
 
   program.command('codegen').description('generate generated/ from abis/ and schema.ts')
     .action(() => cmdCodegen(paths()));

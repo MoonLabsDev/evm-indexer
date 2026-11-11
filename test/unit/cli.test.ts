@@ -254,7 +254,7 @@ describe('cli entry', () => {
   it('importing it runs nothing and exposes the commands', async () => {
     const { buildProgram } = await import('../../src/cli/index');
     const program = buildProgram();
-    expect(program.commands.map((c) => c.name()).sort()).toEqual(['codegen', 'index', 'process', 'reset', 'set-revision']);
+    expect(program.commands.map((c) => c.name()).sort()).toEqual(['codegen', 'index', 'init', 'process', 'reset', 'set-revision']);
     expect(vi.mocked(console.log)).not.toHaveBeenCalled();
   });
 });

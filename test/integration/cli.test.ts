@@ -266,8 +266,11 @@ describe('the built CLI against a client project that imports evm-indexer by nam
     expect(res.status, `${res.stdout}${res.stderr}`).toBe(0);
     expect(res.stdout.trim()).toBe('Factory,PoolTemplate');
 
-    // codegen loads chains.ts-style config the same way: schema.ts through tsx in an ESM project
+    // codegen loads only schema.ts, through tsx, in an ESM project; start from no generated/ so the
+    // entity files below prove it ran
+    rmSync(join(ESM_PROJECT, 'generated'), { recursive: true, force: true });
     const codegen = spawnSync(process.execPath, [CLI, 'codegen', '--root', ESM_PROJECT], { cwd: ESM_PROJECT, encoding: 'utf8' });
     expect(codegen.status, `${codegen.stdout}${codegen.stderr}`).toBe(0);
+    expect(existsSync(join(ESM_PROJECT, 'generated', 'entities', 'PoolEntity.ts'))).toBe(true);
   });
 });
