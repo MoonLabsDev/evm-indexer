@@ -4,6 +4,14 @@ export interface ChainConfig {
   retryDelays: number[]; logRange: SizeBounds; blockBatch: SizeBounds;
   headThreshold: number; useBloom: boolean; pollInterval: number;
 }
+/** A chain as written in a config file; omitted tuning fields get defaults when parsed. */
+export interface ChainInput {
+  name: string; rpc: string[];
+  confirmations?: number; retryDelays?: number[];
+  logRange?: Partial<SizeBounds>; blockBatch?: Partial<SizeBounds>;
+  headThreshold?: number; useBloom?: boolean; pollInterval?: number;
+}
+export interface AddressEntry { address: string | string[]; block: number }
 export interface StaticEntry { source: string; address: string; block: number }
 export interface RawLog {
   address: string; topics: string[]; data: string; blockNumber: number;

@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach, afterAll } from 'vitest';
 import { mkdirSync, writeFileSync, rmSync } from 'fs';
 import { join } from 'path';
-import { defineIndexer, defineTemplate, setTemplateSink } from '../../src/runtime/define';
+import { defineIndexer, defineTemplate, defineChains, defineSchema, defineAddresses, setTemplateSink } from '../../src/runtime/define';
 import { setContext, clearContext, type ContextData } from '../../src/runtime/context';
 import { loadIndexerConfig } from '../../src/config/indexerConfig';
 import { ConfigError } from '../../src/config/chains';
@@ -57,6 +57,18 @@ describe('defineIndexer', () => {
 
   it('rejects a config without any events', () => {
     expect(() => defineIndexer({ contracts: { X: { contract: FakeFactory, events: {} } } })).toThrow(/event/);
+  });
+});
+
+describe('define helpers', () => {
+  it('define helpers tag their input and keep it by reference', () => {
+    const chains = { 1: { name: 'eth', rpc: ['http://x'] } };
+    expect(defineChains(chains)).toEqual({ __evmIndexerConfig: 'chains', value: chains });
+    expect(defineSchema({ A: { x: 'int' } })).toEqual({ __evmIndexerConfig: 'schema', value: { A: { x: 'int' } } });
+    const cfg = defineIndexer({ contracts: { Factory: { contract: FakeFactory, events: { Created: null } } } });
+    const addrs = { 1: { Factory: { address: '0x' + '1'.repeat(40), block: 5 } } };
+    expect(defineAddresses(cfg, addrs)).toEqual({ __evmIndexerConfig: 'addresses', value: addrs });
+    expect(defineChains(chains).value).toBe(chains);
   });
 });
 
