@@ -1,19 +1,29 @@
 # Schema and entities
 
-`schema.json` defines your tables. `evm-indexer codegen` turns each table into an entity
+`schema.ts` defines your tables. `evm-indexer codegen` turns each table into an entity
 class that process callbacks use to read and write MongoDB.
 
-## schema.json
+## schema.ts
 
-Root keys are table names; each maps field names to a type string.
+Root keys are table names; each maps field names to a type string. The file default-exports
+the result of `defineSchema`.
 
-```json
-{
-  "Pool":  { "token": "ref:Token", "reserve": "bigint", "price": "decimal",
-             "createdAt": "timestamp", "tags": "string[]", "note": "string?" },
-  "Token": { "symbol": "string", "decimals": "int" }
-}
+```ts
+import { defineSchema } from 'evm-indexer';
+
+export default defineSchema({
+  Pool: { token: 'ref:Token', reserve: 'bigint', price: 'decimal',
+          createdAt: 'timestamp', tags: 'string[]', note: 'string?' },
+  Token: { symbol: 'string', decimals: 'int' },
+});
 ```
+
+The type strings are checked by the compiler: an unknown field type, or a `ref:` to a
+table that is not in the schema, is a type error. The CLI does not type-check, so run
+`npx tsc --noEmit`. `codegen` validates the schema again at runtime and writes nothing on
+an error.
+
+`schema.ts` is loaded before `generated/` exists. It must not import from `generated/`.
 
 ### Field types
 

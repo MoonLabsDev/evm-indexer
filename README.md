@@ -10,8 +10,8 @@ again.
 ## What it does
 
 - **Indexes events** of the contracts you list, per chain, with RPC failover and retry.
-- **Generates typed classes** from your ABIs (events and read functions) and from a JSON
-  schema (entities with `load` / `save`).
+- **Generates typed classes** from your ABIs (events and read functions) and from a
+  TypeScript schema (entities with `load` / `save`).
 - **Runs your callbacks** per event, with a Solidity-style context: `tx()`, `block()`,
   `chain()`, and contract reads at the event's block.
 - **Follows new contracts at runtime** through templates, like a factory's pools.
@@ -47,15 +47,22 @@ Requires Node 20 or newer and a MongoDB instance.
 npm install evm-indexer
 ```
 
-Your project needs no build step; the config and handlers are loaded as TypeScript.
+Your project needs no build step; the config files and handlers are loaded as TypeScript.
 
 ## Quick start
 
-A project consists of ABIs, three JSON files, one config file and your handlers:
+`init` writes a demo project (a local hardhat chain, two tables, an ERC20 and a factory
+with a template) into the current directory. Existing files are skipped:
+
+```bash
+npx evm-indexer init
+```
+
+A project consists of ABIs, four TypeScript config files and your handlers:
 
 ```
-abis/*.json          chains.json          addresses.json
-schema.json          indexer.config.ts    src/handlers/*.ts
+abis/*.json          chains.ts            addresses.ts
+schema.ts            indexer.config.ts    src/handlers.ts
 ```
 
 ```ts
@@ -105,10 +112,10 @@ The full walk-through is in [Getting started](docs/getting-started.md).
 | Topic | Content |
 |---|---|
 | [Getting started](docs/getting-started.md) | Requirements, project layout, first run step by step |
-| [Configuration](docs/configuration.md) | `chains.json`, `addresses.json`, `indexer.config.ts`, environment variables |
-| [Schema and entities](docs/schema-and-entities.md) | `schema.json` field types, entity API, references, `Timestamp`, `Decimal` |
+| [Configuration](docs/configuration.md) | `chains.ts`, `addresses.ts`, `indexer.config.ts`, environment variables |
+| [Schema and entities](docs/schema-and-entities.md) | `schema.ts` field types, entity API, references, `Timestamp`, `Decimal` |
 | [Callbacks](docs/callbacks.md) | Event object, context, contract reads, index vs process callbacks, templates |
-| [CLI](docs/cli.md) | `codegen`, `index`, `process`, `set-revision`, `reset`, options, stopping |
+| [CLI](docs/cli.md) | `init`, `codegen`, `index`, `process`, `set-revision`, `reset`, options, stopping |
 | [Operations](docs/operations.md) | Status endpoint, what to do after a change, resets, pitfalls |
 | [How it works](docs/how-it-works.md) | Data model, scan modes, RPC handling, revisions |
 

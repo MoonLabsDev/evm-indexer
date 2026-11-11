@@ -10,7 +10,8 @@ Run it through the project's own install: `npx evm-indexer …` or an npm script
 
 | Command | Effect |
 |---|---|
-| [`codegen`](#codegen) | Generate `generated/` from `abis/` and `schema.json` |
+| [`init [--force]`](#init) | Write a demo project into the project folder |
+| [`codegen`](#codegen) | Generate `generated/` from `abis/` and `schema.ts` |
 | [`index --chain <id>`](#index) | Run the indexer for one chain |
 | [`process --chain <id>`](#process) | Run the processor for one chain |
 | [`set-revision --chain <id> [--revision <n>]`](#set-revision) | Trigger a replay of all stored events |
@@ -20,10 +21,37 @@ Run it through the project's own install: `npx evm-indexer …` or an npm script
 
 | Option | Meaning |
 |---|---|
-| `--root <dir>` | Project folder holding `chains.json`, `addresses.json`, `schema.json`, `abis/`, `generated/`, `indexer.config.ts`. Default: the current directory |
+| `--root <dir>` | Project folder holding `chains.ts`, `addresses.ts`, `schema.ts`, `abis/`, `generated/`, `indexer.config.ts`. Default: the current directory |
 | `--debug` | Adds gray lines for every stored event (indexer), every processed event (processor) and every RPC retry, failover, size halving and rate-limit gap, with the RPC URL and the error kind |
 
 `--chain` can also come from the `CHAIN_ID` environment variable, except for `reset`.
+
+## init
+
+```bash
+npx evm-indexer init
+```
+
+Writes a working demo project into the project folder: a local hardhat chain, an ERC20
+with a handler, and a factory whose event creates a template.
+
+| File | Content |
+|---|---|
+| `chains.ts` | Chain 31337 `hardhat` at `http://127.0.0.1:8545` |
+| `schema.ts` | `Account` and `Pool` tables |
+| `abis/Token.json`, `abis/Factory.json`, `abis/Pool.json` | The ABIs used by the demo |
+| `indexer.config.ts` | `Token`, `Factory` and `PoolTemplate` with their events |
+| `addresses.ts` | `Token` and `Factory` at hardhat's first two deploy addresses, block 0 |
+| `src/handlers.ts` | Three commented handlers |
+| `.env.example` | `MONGO_URI`, `MONGO_DB`, `PORT` |
+| `tsconfig.json` | Minimal strict config |
+
+- **Existing files are skipped** and listed. `--force` overwrites them.
+- **`tsconfig.json` is written only if the project has none** and is never overwritten,
+  not even with `--force`.
+- Needs no database and no RPC, and does not run `codegen`.
+- Ends by printing the next steps: install `evm-indexer` if missing, `codegen`, start a
+  hardhat node and deploy, `index`, `process`.
 
 ## codegen
 
@@ -34,7 +62,11 @@ npx evm-indexer codegen
 Writes `generated/contracts/*.ts`, `generated/entities/*.ts` and `generated/index.ts`.
 
 - One contract class per ABI file; the file name is the class name.
-- One entity class per table in `schema.json`. A missing `schema.json` means no entities.
+- One entity class per table in `schema.ts`. A missing `schema.ts` means no entities.
+- `schema.ts` is loaded before `generated/` exists, so it must not import from
+  `generated/`.
+- Loads only `schema.ts` and the ABIs, not `chains.ts`, `addresses.ts` or
+  `indexer.config.ts`.
 - Everything is validated first. On an error nothing is written.
 - Needs no database and no RPC.
 
@@ -46,7 +78,7 @@ Run it again whenever an ABI or the schema changes.
 npx evm-indexer index --chain 1329
 ```
 
-Walks the chain from the lowest `block` in `addresses.json` (or from where it stopped),
+Walks the chain from the lowest `block` in `addresses.ts` (or from where it stopped),
 stores matching events and their transactions, and runs index callbacks. It never runs
 process callbacks and does not report `processBlock`.
 

@@ -52,7 +52,7 @@ block, transaction index and log index of the creating event.
 
 ## The indexer
 
-On start it builds a registry of `address → contract → events` from `addresses.json` and
+On start it builds a registry of `address → contract → events` from `addresses.ts` and
 `sys_templates`. Each entry reacts only from its own start block (for templates: from
 after the creating event).
 
@@ -136,7 +136,7 @@ carry that number unprocessed.
 - **Contract classes** from ABIs: one method per `view` / `pure` function, typed event
   definitions, and the topic of each event. A method encodes the call, runs it at the
   current event's block through the RPC pool and decodes the result.
-- **Entity classes** from `schema.json`: typed getters and setters, `load`, `save`,
+- **Entity classes** from `schema.ts`: typed getters and setters, `load`, `save`,
   `remove`, and reference accessors.
 
 Both rely on runtime state that the CLI sets up (the current context, the RPC pool, the

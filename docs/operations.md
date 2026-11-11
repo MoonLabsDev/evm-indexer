@@ -31,11 +31,11 @@ indexer. A long healthy batch stays `200`; a loop that keeps failing turns `503`
 | Change | What to do |
 |---|---|
 | A process callback | `set-revision --chain <id>`. The processor drops the chain's entities and replays all stored events. No re-index |
-| `schema.json` | `codegen`, then `set-revision --chain <id>` |
+| `schema.ts` | `codegen`, then `set-revision --chain <id>` |
 | An ABI | `codegen`. If the events you index changed, also reset and re-index |
 | An index callback | Stop both processes, `reset --chain <id>`, start `index`, then `process` |
-| Events or contracts in `indexer.config.ts`, or `addresses.json` | Stop both processes, `reset --chain <id>`, index again. Newly added events and addresses are not backfilled otherwise |
-| `chains.json` (RPCs, limits) | Restart the affected process |
+| Events or contracts in `indexer.config.ts`, or `addresses.ts` | Stop both processes, `reset --chain <id>`, index again. Newly added events and addresses are not backfilled otherwise |
+| `chains.ts` (RPCs, limits) | Restart the affected process |
 
 ## Resetting safely
 
@@ -49,7 +49,7 @@ be gone.
 
 - **Archive RPC:** contract reads in callbacks run at the event's block. A processor that
   is far behind the head, and every replay, needs an archive node.
-- **Reorgs are not rolled back.** Set `confirmations` in `chains.json` on chains that
+- **Reorgs are not rolled back.** Set `confirmations` in `chains.ts` on chains that
   reorganise; the indexer then stays that many blocks behind the head.
 - **A failing callback stops the processor** at that event and retries it. Fix the
   callback and restart, or the processor will not move on.

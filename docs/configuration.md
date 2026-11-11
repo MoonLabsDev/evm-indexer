@@ -1,27 +1,45 @@
 # Configuration
 
-A project is configured by three JSON files, one TypeScript file and a few environment
-variables. `schema.json` is covered in [Schema and entities](schema-and-entities.md).
+A project is configured by four TypeScript files in the project root and a few
+environment variables. `evm-indexer init` writes all four; see
+[Getting started](getting-started.md). `schema.ts` is covered in
+[Schema and entities](schema-and-entities.md).
 
-## chains.json
+Each file default-exports the result of a helper from `evm-indexer`:
+
+| File | Helper |
+|---|---|
+| `chains.ts` | `defineChains` |
+| `schema.ts` | `defineSchema` |
+| `addresses.ts` | `defineAddresses` |
+| `indexer.config.ts` | `defineIndexer` |
+
+The helpers type their input, so the editor and the compiler check the files. The CLI
+loads the files through `tsx`, which does not type-check. **Run `npx tsc --noEmit`
+yourself** to see type errors. The CLI only checks at runtime what it can: see
+[Load errors](#load-errors).
+
+## chains.ts
 
 Keyed by chain id. Every field except `name` and `rpc` is optional; the values below are
 the defaults.
 
-```json
-{
-  "1329": {
-    "name": "sei",
-    "rpc": ["https://rpc-a", "https://rpc-b"],
-    "confirmations": 0,
-    "retryDelays": [100, 500, 2500],
-    "logRange": { "start": 500, "min": 1, "max": 2000 },
-    "blockBatch": { "start": 10, "min": 1, "max": 100 },
-    "headThreshold": 64,
-    "useBloom": true,
-    "pollInterval": 1000
-  }
-}
+```ts
+import { defineChains } from 'evm-indexer';
+
+export default defineChains({
+  1329: {
+    name: 'sei',
+    rpc: ['https://rpc-a', 'https://rpc-b'],
+    confirmations: 0,
+    retryDelays: [100, 500, 2500],
+    logRange: { start: 500, min: 1, max: 2000 },
+    blockBatch: { start: 10, min: 1, max: 100 },
+    headThreshold: 64,
+    useBloom: true,
+    pollInterval: 1000,
+  },
+});
 ```
 
 | Field | Meaning |
@@ -38,27 +56,44 @@ the defaults.
 
 How these are used is described in [How it works](how-it-works.md#scanning).
 
-## addresses.json
+The compiler checks that `name` and `rpc` are present and that every other field has the
+right type. The chain id is a number key.
+
+## addresses.ts
 
 Keyed by chain id, then by contract name from `indexer.config.ts`. `block` is the first
 block from which the entry reacts to logs. `address` is one address or a list.
 
-```json
-{
-  "1329": {
-    "Factory": { "address": "0x0000000000000000000000000000000000000001", "block": 1200000 },
-    "Erc20":   { "address": ["0x0000000000000000000000000000000000000002",
-                             "0x0000000000000000000000000000000000000003"], "block": 1250000 }
-  }
-}
+```ts
+import { defineAddresses } from 'evm-indexer';
+import config from './indexer.config';
+
+export default defineAddresses(config, {
+  1329: {
+    Factory: { address: '0x0000000000000000000000000000000000000001', block: 1200000 },
+    Erc20: {
+      address: ['0x0000000000000000000000000000000000000002',
+                '0x0000000000000000000000000000000000000003'],
+      block: 1250000,
+    },
+  },
+});
 ```
 
-- The names are checked both ways at startup: an unknown name, or a contract without an
+`defineAddresses` takes the default export of `indexer.config.ts` as its first argument.
+It is used for typing only: the contract names under `contracts` become the allowed keys.
+
+- The compiler rejects a contract name that is not under `contracts`, and a chain entry
+  that lacks one of them. Templates cannot be listed; their addresses come from
+  `Template.create`.
+- The names are also checked at startup: an unknown name, or a contract without an
   entry for the started chain, is a fatal error.
 - Addresses are lowercased.
 - An address can belong to only one contract.
 - Scanning starts at the lowest `block` of all entries.
 - Only `index` reads this file; `process` does not.
+- `addresses.ts` imports `indexer.config.ts`, which imports `generated/`. Run `codegen`
+  first.
 
 ## indexer.config.ts
 
@@ -110,6 +145,19 @@ The two callback kinds:
 | Runs in | the indexer, when the event is stored | the processor, over stored events |
 | May use | `tx()`, `block()`, `chain()`, contract reads, `Template.create` | `tx()`, `block()`, `chain()`, contract reads, entities |
 | Changing it needs | `reset --chain` and a re-index | `set-revision` (replay, no re-index) |
+
+## Load errors
+
+The CLI reports these when it loads a config file:
+
+| Message | Cause |
+|---|---|
+| `cannot read <path>: file not found` | The file does not exist |
+| `<path> not found; <name>.json is no longer read: move it to <name>.ts with export default <helper>(...)` | A project from before 0.2 still has `chains.json`, `addresses.json` or `schema.json`. The JSON files are not read; there is no fallback |
+| `cannot load <path>: <reason>` | The file threw while loading, for example a syntax error or a failing import |
+| `<path> must default-export the result of <helper>()` | The default export is missing or was not built by `defineChains`, `defineSchema` or `defineAddresses` |
+
+ABIs stay JSON under `abis/`.
 
 ## Environment
 
