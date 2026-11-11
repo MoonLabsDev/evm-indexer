@@ -29,7 +29,7 @@ export default defineChains({
 // schema.ts
 import { defineSchema } from 'evm-indexer';
 export default defineSchema({
-  Account: { id: 'string', balance: 'bigint', updatedAt: 'timestamp' },
+  Account: { balance: 'bigint', updatedAt: 'timestamp' },
 });
 
 // addresses.ts
