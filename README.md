@@ -1,281 +1,126 @@
 # evm-indexer
 
-A subgraph-like indexer for EVM chains. It walks blocks and stores the raw events of your
-contracts in MongoDB (the **indexer**), then runs your typed callbacks over the stored events
-and writes entities (the **processor**). Changing callback logic does not need a new scan of
-the chain: bump the revision and the processor replays from the stored events.
+A subgraph-like indexer for EVM chains, backed by MongoDB.
 
-- Typed contract classes (events and read functions) and entity classes are generated from ABIs and a schema.
-- Contract addresses can be added at runtime through templates.
-- Events only. No write calls, no reorg rollback (use `confirmations`), no traces, no query API.
+You describe your contracts, events and tables; evm-indexer stores the raw events of those
+contracts and runs your typed callbacks over them to build your own tables. When you
+change callback logic, it replays from the stored events instead of scanning the chain
+again.
+
+## What it does
+
+- **Indexes events** of the contracts you list, per chain, with RPC failover and retry.
+- **Generates typed classes** from your ABIs (events and read functions) and from a JSON
+  schema (entities with `load` / `save`).
+- **Runs your callbacks** per event, with a Solidity-style context: `tx()`, `block()`,
+  `chain()`, and contract reads at the event's block.
+- **Follows new contracts at runtime** through templates, like a factory's pools.
+- **Replays without re-indexing:** bump a revision and all entities are rebuilt from the
+  stored events.
+
+It handles events only. There are no write calls, no reorg rollback (use `confirmations`),
+no traces and no query API on top of the tables.
+
+## How it works
+
+Two separate processes share one MongoDB database:
+
+```
+chain ──RPC──▶ indexer ──▶ stored events ──▶ processor ──▶ your tables
+```
+
+1. The **indexer** walks the chain and stores every matching event together with its
+   transaction. Far behind the head it uses `eth_getLogs`; near the head it walks blocks
+   and reads their receipts.
+2. The **processor** reads the stored events in order and calls your callbacks, which
+   write entities.
+3. Each stored event carries a revision mark. `set-revision` raises the chain's revision,
+   and the processor drops the entities and processes every event again.
+
+More detail: [How it works](docs/how-it-works.md).
 
 ## Install
 
-Node 20 or newer and a MongoDB instance.
+Requires Node 20 or newer and a MongoDB instance.
 
 ```bash
 npm install evm-indexer
 ```
 
-`indexer.config.ts` is loaded through `tsx`, so the project needs no build step. The CLI registers
-tsx as a require hook and loads the config with Node's `require`, so the config, the generated code
-and your handlers all reach the same `evm-indexer` runtime as the CLI. CommonJS and ESM projects
-(`"type": "module"` in `package.json`) both work; a config that uses top-level `await` cannot be
-loaded this way.
+Your project needs no build step; the config and handlers are loaded as TypeScript.
 
-Installing from git or a local path builds the package (`prepare`), so the `evm-indexer` bin exists.
+## Quick start
 
-## Project layout
+A project consists of ABIs, three JSON files, one config file and your handlers:
 
 ```
-abis/*.json            one ABI per contract class; the file name is the class name
-chains.json            chain settings
-addresses.json         static contract addresses per chain
-schema.json            entity tables
-indexer.config.ts      contracts, templates, events, callbacks
-src/handlers/*.ts      your callbacks
-generated/             output of `evm-indexer codegen`, not edited by hand
-.env                   MONGO_URI, MONGO_DB, PORT
+abis/*.json          chains.json          addresses.json
+schema.json          indexer.config.ts    src/handlers/*.ts
 ```
-
-All commands take `--root <dir>` (default: the current directory) and look for
-`chains.json`, `addresses.json`, `schema.json`, `abis/`, `generated/` and `indexer.config.ts`
-there. An ABI file is a plain ABI array or an artifact object with an `abi` array (hardhat, foundry).
-
-## Configuration
-
-### chains.json
-
-Keyed by chain id. Every field except `name` and `rpc` is optional; the values below are the defaults.
-
-```json
-{
-  "1329": {
-    "name": "sei",
-    "rpc": ["https://rpc-a", "https://rpc-b"],
-    "confirmations": 0,
-    "retryDelays": [100, 500, 2500],
-    "logRange": { "start": 500, "min": 1, "max": 2000 },
-    "blockBatch": { "start": 10, "min": 1, "max": 100 },
-    "headThreshold": 64,
-    "useBloom": true,
-    "pollInterval": 1000
-  }
-}
-```
-
-| Field | Meaning |
-|---|---|
-| `name` | Chain name, exposed as `chain().name` |
-| `rpc` | RPC URLs in order of preference (at least one) |
-| `confirmations` | The indexer goes up to `head - confirmations` |
-| `retryDelays` | Backoff steps in ms on one RPC before switching to the next |
-| `logRange` | Bounds for the adaptive `eth_getLogs` block range (backfill) |
-| `blockBatch` | Bounds for the adaptive number of blocks per batch request (head mode) |
-| `headThreshold` | At most this many blocks behind the target: head mode (blocks and receipts); otherwise backfill (`eth_getLogs`). Backfill stops `headThreshold` blocks short of the target and leaves the rest to head mode, which notices blocks and receipts a lagging RPC does not have yet |
-| `useBloom` | Head mode skips blocks whose `logsBloom` cannot match. Set `false` on chains with unreliable blooms |
-| `pollInterval` | Loop pause in ms when caught up, and after an error |
-
-The RPC pool retries retryable errors (timeouts, 429, network, 5xx), fails over to the next RPC,
-and learns a log range and a batch size per RPC (grow when fast, halve on timeouts, 429 and
-"too large" errors). A second timeout in a row on the same RPC (a hung endpoint) moves straight to
-the next RPC instead of halving again (with a single RPC it keeps halving). A method an RPC does not
-support (`-32601`, "not supported") moves to the next RPC; once every RPC refused it, that error is
-thrown. No block is ever skipped.
-
-### addresses.json
-
-Keyed by chain id, then by contract name from `indexer.config.ts`. `block` is the first block
-from which the entry reacts to logs. `address` is one address or a list.
-
-```json
-{
-  "1329": {
-    "Factory": { "address": "0x0000000000000000000000000000000000000001", "block": 1200000 },
-    "Erc20":   { "address": ["0x0000000000000000000000000000000000000002", "0x0000000000000000000000000000000000000003"], "block": 1250000 }
-  }
-}
-```
-
-At startup the names are checked both ways: an unknown name, or a contract without an entry for
-the started chain, is fatal. Addresses are lowercased. `process` does not read this file.
-
-### schema.json
-
-Root keys are table names, each maps field names to a type string.
-
-```json
-{
-  "Pool":  { "token": "ref:Token", "reserve": "bigint", "price": "decimal",
-             "createdAt": "timestamp", "tags": "string[]", "note": "string?" },
-  "Token": { "symbol": "string", "decimals": "int" }
-}
-```
-
-| Type | In code | In MongoDB |
-|---|---|---|
-| `string` | `string` | string |
-| `int` | `number` (integer, checked on save) | int / long |
-| `float` | `number` | double |
-| `bigint` | `bigint` | decimal string (not numerically sortable) |
-| `decimal` | `Decimal` (decimal.js); setter also takes string / number | `Decimal128` |
-| `boolean` | `boolean` | bool |
-| `address` | lowercase `string`, validated | string |
-| `bytes` | hex `string`, validated | string |
-| `timestamp` | `Timestamp`; setter takes unix seconds, `Date` or `Timestamp` | `Date` |
-| `ref:<Table>` | see References | the referenced id (string) |
-
-Modifiers: `[]` for arrays, `?` for optional (`string[]?` is allowed, also on `ref`). A table
-cannot have a field named `id` (every entity has a string `id`, stored as `_id`) and a `ref`
-must point to an existing table.
-
-A table may share its name with a contract (ABI file). `generated/index.ts` exports all contracts
-by name; an entity named like a contract is exported as `<Name>Entity` instead (`codegen` prints a
-warning for each). Entities are also exported under their own name from `generated/entities`, and
-contracts from `generated/contracts`:
 
 ```ts
-import { Pool, PoolEntity } from './generated';         // contract Pool, entity Pool
-import { Pool as PoolRow } from './generated/entities'; // the entity under its own name
-```
-
-`codegen` fails when `<Name>Entity` is itself taken by a contract or a table, when a table is
-named like a type a contract file exports (`<Contract>Events`, `<Contract><Event>Event`), when two
-tables differ only by case, and when a contract would get two members of one name (e.g. overloads
-`get` become `get_0`, `get_1` next to a real `get_0`). The MongoDB collection always follows the
-table name (`ent_<chainId>_Pool`). Generated contract files import the runtime types with
-`import type`, so they compile under `verbatimModuleSyntax`.
-
-### indexer.config.ts
-
-```ts
-import { defineIndexer, defineTemplate } from 'evm-indexer';
-import { Factory, PoolPair } from './generated';
-import { handlePoolCreated, handleOwnerChanged, handleSwap } from './src/handlers';
-
-export const PoolTemplate = defineTemplate({
-  contract: PoolPair,
-  events: { Swap: handleSwap, Sync: null },
-});
+// indexer.config.ts
+import { defineIndexer } from 'evm-indexer';
+import { Token } from './generated';
+import { handleTransfer } from './src/handlers';
 
 export default defineIndexer({
   contracts: {
-    Factory: {
-      contract: Factory,
-      events: {
-        PoolCreated: {
-          index: (e) => PoolTemplate.create(e.args.pool),
-          process: handlePoolCreated,
-        },
-        OwnerChanged: handleOwnerChanged, // shorthand: process callback only
-        Paused: null,                     // indexed, no callback
-      },
-    },
+    Token: { contract: Token, events: { Transfer: handleTransfer } },
   },
-  templates: { PoolTemplate },
 });
 ```
 
-- Only listed events are indexed. An entry is `null`, a process callback, or `{ index?, process? }`.
-- A log whose topic0 matches but whose layout does not fit the ABI (e.g. an ERC-721 `Transfer` at an address configured as ERC-20) is skipped and logged in red once per address and topic0; indexing goes on.
-- Event names are type-checked against the generated class; callback parameters are inferred. Callbacks may be sync or async.
-- Declare templates with `defineTemplate` before the indexer config and register them under `templates`; the key is the template name. `Template.create` on an unregistered template throws.
-- Contract and template names share one namespace and must be unique.
-- Overloaded events and functions get an index suffix, sorted by topic0 / 4-byte selector: `Transfer_0`, `Transfer_1`, `balanceOf_0`. Unique names stay plain.
-
-## Writing callbacks
-
-Callbacks run one event at a time. The context functions work inside a callback and throw outside one.
-
 ```ts
-import { tx, block, chain } from 'evm-indexer';
-import { Erc20, Pool, type PoolPairSwapEvent } from '../generated';
+// src/handlers.ts
+import { block } from 'evm-indexer';
+import { Account, type TokenTransferEvent } from '../generated';
 
-export async function handleSwap(e: PoolPairSwapEvent) {
-  tx().hash; tx().from; tx().to; tx().value; tx().gasPrice; tx().input; // also nonce, transactionIndex, logIndex
-  block().number; block().hash; block().timestamp;                      // a Timestamp
-  chain().id; chain().name;
-
-  const pool = (await Pool.load(e.address)) ?? new Pool(e.address);
-  pool.reserve = (pool.reserve ?? 0n) + e.args.amount0In;
-  pool.createdAt = block().timestamp;       // or unix seconds, a Date
-  pool.price = '1.2345';                    // Decimal, string or number
-  await pool.save();                        // upsert of the whole document
+export async function handleTransfer(e: TokenTransferEvent) {
+  const to = (await Account.load(e.args.to)) ?? new Account(e.args.to);
+  to.balance = (to.balance ?? 0n) + e.args.value;
+  to.updatedAt = block().timestamp;
+  await to.save();
 }
 ```
 
-- **Events**: `e.args`, `e.address`, `e.blockNumber`, `e.txIndex`, `e.logIndex`, `e.txHash`. Solidity `uint*`/`int*` are `bigint`, addresses lowercase strings, tuples typed objects.
-- **Contract reads**: every `view`/`pure` function is a method, executed with `eth_call` at the event's block: `await new Erc20(addr).balanceOf(user)`. A single return value comes back directly, several as an object keyed by output name (`_0`, `_1` when unnamed).
-- **Entities**: `Entity.load(id)` returns `null` when missing, `new Entity(id)` creates one, `save()` upserts the whole document, `remove()` deletes it. Required fields that were never set make `save()` throw. Collections are `ent_<chainId>_<Table>`.
-- **References** (`token: "ref:Token"`):
+Generate the classes, then run the two processes:
 
-  ```ts
-  pool.tokenId = '0x...';                // sync, no read
-  const token = await pool.getToken();   // loads once, then cached; null if missing
-  pool.setToken(token);                  // sets id and cache
-  ```
+```bash
+npx evm-indexer codegen
+```
 
-  An array reference named `tokens: "ref:Token[]"` gives `tokenIds`, `getTokens()`, `setTokens()` (a trailing `s` of the field name is dropped for the ids property).
-- **`Timestamp`**: immutable, `.unix` (seconds), `.ms`, `.date`, `.iso`. Numbers are always unix seconds.
-- **`Decimal`**: decimal.js, exported from `evm-indexer`. MongoDB `Decimal128` holds 34 significant digits; `save()` throws on more instead of rounding.
-- **Index callbacks** may use `tx()`, `block()`, `chain()` and contract reads, but not entities. Their only side effect is `Template.create(address)`. **Process callbacks** may use everything except `Template.create`.
+```bash
+npx evm-indexer index --chain 1329
+```
 
-## Commands
+```bash
+npx evm-indexer process --chain 1329
+```
 
-| Command | Effect |
+The full walk-through is in [Getting started](docs/getting-started.md).
+
+## Documentation
+
+| Topic | Content |
 |---|---|
-| `evm-indexer codegen` | Generate `generated/contracts/*`, `generated/entities/*` and `generated/index.ts` from `abis/` and `schema.json` |
-| `evm-indexer index --chain <id>` | Run the indexer for one chain |
-| `evm-indexer process --chain <id>` | Run the processor for one chain |
-| `evm-indexer set-revision --chain <id> [--revision <n>]` | Set `currentRevisionId` (default: current + 1) and print it. The processor drops the chain's entities and replays. Revisions only move forward: `--revision` at or below the current one is refused, because events still stamped with an old id would not be replayed |
-| `evm-indexer reset [--chain <id>] [--yes] [--force]` | Without `--chain`: drop every `sys_*` and `ent_*` collection. With `--chain`: delete that chain's events, transactions and templates, drop its entities, set its counters to 0. Asks for `yes` unless `--yes` is given. Refuses (deleting nothing) while an indexer or processor of an affected chain has a heartbeat younger than 60 s, that is the given chain, or every chain with a `sys_chains` row; `--force` skips this check, `--yes` does not |
+| [Getting started](docs/getting-started.md) | Requirements, project layout, first run step by step |
+| [Configuration](docs/configuration.md) | `chains.json`, `addresses.json`, `indexer.config.ts`, environment variables |
+| [Schema and entities](docs/schema-and-entities.md) | `schema.json` field types, entity API, references, `Timestamp`, `Decimal` |
+| [Callbacks](docs/callbacks.md) | Event object, context, contract reads, index vs process callbacks, templates |
+| [CLI](docs/cli.md) | `codegen`, `index`, `process`, `set-revision`, `reset`, options, stopping |
+| [Operations](docs/operations.md) | Status endpoint, what to do after a change, resets, pitfalls |
+| [How it works](docs/how-it-works.md) | Data model, scan modes, RPC handling, revisions |
 
-Global options: `--debug` and `--root <dir>`. `--debug` adds gray lines for every stored event
-(indexer), every processed event (processor), and every RPC retry, failover, size halving and
-rate-limit gap (with the RPC URL and the error kind).
+## Development
 
-`--chain` can come from `CHAIN_ID`; `reset` only reads `--chain`. `index` and `process` write a
-heartbeat to `sys_chains` every 10 s for as long as they run, also during a long batch, and refuse to
-start while another process of the same kind has a heartbeat younger than 60 s for that chain (after
-a crash, wait up to a minute).
+```bash
+npm run build
+```
 
-SIGINT and SIGTERM stop cleanly: the processor finishes the current event, the indexer its current
-range; then the heartbeat is cleared, the status server and the MongoDB connection are closed, and
-the process exits 0. After a clean stop a restart or a `reset` is not refused. If the stop takes
-longer than 30 s, the process exits with code 1. Fatal errors are printed in red and exit with code 1.
+```bash
+npm test
+```
 
-## Environment
-
-Read from the process environment, from `.env` in the working directory and from `.env` under `--root`.
-
-| Variable | Meaning |
-|---|---|
-| `MONGO_URI` | MongoDB connection string. Required for `index`, `process`, `set-revision`, `reset` |
-| `MONGO_DB` | Database name. Required, same commands |
-| `PORT` | Status server port, default `3000`. `index` and `process` on one machine need different values |
-| `CHAIN_ID` | Default for `--chain` |
-
-## Status endpoint
-
-`index` and `process` start an HTTP server on `PORT`.
-
-- `GET /health`: `200 ok` while the loop's last progress is younger than 60 s, otherwise `503`. Progress is a successful loop iteration, a processed event, or a scan / store step of the indexer, so a long healthy batch stays `200`; a loop that keeps failing turns `503`.
-- `GET /status`: indexer `{ chainId, name, currentBlock, indexBlock }`; processor `{ chainId, name, currentBlock, indexBlock, processBlock, revisionId }`. `currentBlock` is the chain head, refreshed by the loop.
-
-Run the indexer and the processor of one chain on different ports; a port in use is reported with
-its number.
-
-While more than one batch behind, the processor prints a green progress line with blocks/s and an
-ETA every 10 s, like the indexer while it is far from the head.
-
-## Operational notes
-
-- **Changing a process callback**: run `evm-indexer set-revision --chain <id>`. The running processor picks it up, drops the chain's entities and replays every stored event. No re-indexing.
-- **Changing an index callback** (or anything that decides which addresses and events are scanned): stop the indexer and the processor of that chain, run `evm-indexer reset --chain <id>` and index again. Then run the processor.
-- **Stop the indexer and processor before a reset.** A running indexer keeps its template addresses in memory; a reset wipes them from the database, so after its next restart they would never be indexed again. `reset` therefore refuses while a heartbeat is fresh (after a crash, wait up to a minute); `--force` overrides the check, for a process that is known to be gone.
-- **Archive RPC**: contract reads in callbacks run at the event's block. A processor that is far behind the head needs an archive node.
-- **Templates**: an address added with `Template.create` is indexed only from after the event that created it. Earlier logs of that address are not read.
-- **Idempotence**: a callback is stamped as done after it returns. If the processor dies between a callback's saves and the stamp, that event runs again on restart, so a callback like `balance += amount` can count once too often. Replay with `set-revision` to repair.
-- **A failing callback** stops the processor at that event: the error is logged and the same event is retried after `pollInterval`. Events after it are never skipped.
-- **Reorgs** are not handled; use `confirmations` on chains that reorganise.
-- Collections: `sys_events`, `sys_transactions`, `sys_chains`, `sys_templates`, and `ent_<chainId>_<Table>`.
+`npm test` runs the unit tests and the integration tests; the latter start a local hardhat
+node and an in-memory MongoDB. `npm run test:unit` runs only the unit tests.
